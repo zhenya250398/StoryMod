@@ -35,6 +35,9 @@ namespace Mechworks
         int beams;
         int extension;
 
+        /// <summary>Id of the queued beam write, -1 when none is pending.</summary>
+        long pendingBeamSync = -1;
+
         /// <summary>
         /// Exactly which beam went in, so exactly that comes back out. Guessing a code
         /// would mean guessing both the asset domain and the wood type.
@@ -163,6 +166,14 @@ namespace Mechworks
             return true;
         }
 
+        void CancelPendingBeamSync()
+        {
+            if (pendingBeamSync < 0) return;
+
+            UnregisterDelayedCallback(pendingBeamSync);
+            pendingBeamSync = -1;
+        }
+
         void DisposeRenderer()
         {
             if (headRenderer == null || Api is not ICoreClientAPI capi) return;
@@ -174,12 +185,14 @@ namespace Mechworks
 
         public override void OnBlockUnloaded()
         {
+            CancelPendingBeamSync();
             DisposeRenderer();
             base.OnBlockUnloaded();
         }
 
         public override void OnBlockRemoved()
         {
+            CancelPendingBeamSync();
             DisposeRenderer();
 
             beams = 0;
@@ -193,6 +206,26 @@ namespace Mechworks
 
         /// <summary>Cells the beam occupies behind the piston.</summary>
         public int BackBeams => System.Math.Max(0, beams - CounterweightBeams - extension);
+
+        /// <summary>
+        /// Holds the world beam back until the stroke has finished travelling.
+        ///
+        /// Writing it immediately made the beam jump a whole cell at the start of a stroke
+        /// while the drawn segment was still sliding towards it — the block teleported and
+        /// its own animation chased it. The counters step at once, which is what the
+        /// renderer interpolates from; only the blocks wait.
+        /// </summary>
+        void SyncBeamBlocksWhenStrokeLands()
+        {
+            if (Api?.Side != EnumAppSide.Server) return;
+
+            if (pendingBeamSync >= 0) UnregisterDelayedCallback(pendingBeamSync);
+            pendingBeamSync = RegisterDelayedCallback(_ =>
+            {
+                pendingBeamSync = -1;
+                SyncBeamBlocks();
+            }, (int)(MoveDurationSec * 1000));
+        }
 
         /// <summary>
         /// Writes the beam into the world to match the machine's own counters: as much as
@@ -277,7 +310,7 @@ namespace Mechworks
             }
 
             extension++;
-            SyncBeamBlocks();   // beam advances a cell in front, gives one up at the back
+            SyncBeamBlocksWhenStrokeLands();
             MarkDirty(true);
             return true;
         }
@@ -312,7 +345,7 @@ namespace Mechworks
             }
 
             extension--;
-            SyncBeamBlocks();
+            SyncBeamBlocksWhenStrokeLands();
             MarkDirty(true);
             return true;
         }
