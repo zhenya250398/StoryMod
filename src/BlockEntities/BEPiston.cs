@@ -380,8 +380,18 @@ namespace Mechworks
         public override void FromTreeAttributes(ITreeAttribute tree, IWorldAccessor worldAccessForResolve)
         {
             base.FromTreeAttributes(tree, worldAccessForResolve);
+
+            int wasExtension = extension;
+
             beams = tree.GetInt("beams");
             extension = tree.GetInt("extension");
+
+            // Learning the machine has moved is the client's cue to run the animation, and
+            // it arrives alongside the entity carrying whatever is being pushed.
+            if (worldAccessForResolve.Side == EnumAppSide.Client && extension != wasExtension)
+            {
+                BeginStroke();
+            }
             beamCode = tree.GetString("beamCode");
             if (string.IsNullOrEmpty(beamCode)) beamCode = null;
         }

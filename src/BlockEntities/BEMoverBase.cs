@@ -47,8 +47,15 @@ namespace Mechworks
 
         float progress;
 
-        /// <summary>Seconds left of the current stroke; nothing new starts while above zero.</summary>
-        float movingUntil;
+        /// <summary>
+        /// When the current stroke began, in world milliseconds; -1 when at rest.
+        ///
+        /// Deliberately a timestamp rather than a countdown ticked down in OnTick: the tick
+        /// runs four times a second, so a countdown only knows about two moments inside a
+        /// 0.4s stroke. The carried blocks are interpolated every frame by their carrier
+        /// entity, and anything drawn from a coarse counter visibly lags behind them.
+        /// </summary>
+        long strokeStartMs = -1;
 
         BEBehaviorMPConsumer mpConsumer;
 
@@ -92,11 +99,23 @@ namespace Mechworks
         }
 
         /// <summary>True while a stroke is in the air.</summary>
-        public bool Stroking => movingUntil > 0f;
+        public bool Stroking => strokeStartMs >= 0 && StrokeElapsed() < MoveDurationSec;
 
         /// <summary>How far through the current stroke, 0 at the start and 1 at the end.</summary>
         public float StrokeProgress =>
-            movingUntil <= 0f ? 0f : 1f - (movingUntil / MoveDurationSec);
+            strokeStartMs < 0 ? 0f : GameMath.Clamp(StrokeElapsed() / MoveDurationSec, 0f, 1f);
+
+        float StrokeElapsed()
+        {
+            return (Api.World.ElapsedMilliseconds - strokeStartMs) / 1000f;
+        }
+
+        /// <summary>Starts the visual stroke from now.</summary>
+        protected void BeginStroke()
+        {
+            if (Api?.World == null) return;
+            strokeStartMs = Api.World.ElapsedMilliseconds;
+        }
 
         /// <summary>Seconds until the next stroke at the current speed, 0 when unpowered.</summary>
         public float SecondsToNextStroke
@@ -131,8 +150,6 @@ namespace Mechworks
 
         void OnTick(float dt)
         {
-            if (movingUntil > 0f) movingUntil -= dt;
-
             if (DebugRotation) LogRotationIfChanged();
 
             float speed = Speed;
@@ -143,14 +160,17 @@ namespace Mechworks
 
             // A stroke is still in the air. Hold the charge rather than firing again —
             // the blocks of the previous stroke are not in the grid to be found right now.
-            if (movingUntil > 0f) return;
+            if (Stroking) return;
 
             progress -= RevolutionsPerStroke;
-            movingUntil = MoveDurationSec;
 
-            // World mutation is server-authoritative; the client runs the same timing
-            // purely so its readout stays in step.
-            if (Api.Side == EnumAppSide.Server) TryMove();
+            // Only the server starts strokes. The client used to start its own from this
+            // same accumulator, which drifts by up to a tick — a quarter second against a
+            // stroke lasting under half of one. It now starts the animation when it is told
+            // the machine moved, which is also when the carrier entity carrying the load
+            // shows up, so the two stay together.
+            if (Api.Side != EnumAppSide.Server) return;
+            if (TryMove()) BeginStroke();
         }
 
         /// <summary>
