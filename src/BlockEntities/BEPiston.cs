@@ -106,14 +106,25 @@ namespace Mechworks
             if (extension >= Reach) return false;   // beam is already all the way out
 
             BlockFacing facing = PushFacing;
-            List<BlockPos> chain = CollectPushChain(Api.World.BlockAccessor, facing);
-            if (chain == null) return false;
+            IBlockAccessor ba = Api.World.BlockAccessor;
 
-            // Anything glued to the chain comes along, so a piston can shove a structure
-            // and not just the line of blocks directly ahead of it.
-            List<BlockPos> group = ExpandThroughGlue(chain);
-            if (group == null) return false;
-            if (!StartMove(group, facing)) return false;
+            BlockPos nextTip = BeamTip.AddCopy(facing);
+            if (ba.GetChunkAtBlockPos(nextTip) == null) return false;
+
+            // The beam is part of the machine, not cargo: it drives out into empty air
+            // just as happily as against a load. Only something actually occupying the
+            // cell has to be shifted first, and only that can refuse the stroke.
+            if (!IsFree(ba.GetBlock(nextTip)))
+            {
+                List<BlockPos> chain = CollectPushChain(ba, facing);
+                if (chain == null) return false;
+
+                // Anything glued to the chain comes along, so a piston can shove a
+                // structure and not just the line of blocks directly ahead of it.
+                List<BlockPos> group = ExpandThroughGlue(chain);
+                if (group == null) return false;
+                if (!StartMove(group, facing)) return false;
+            }
 
             extension++;
             MarkDirty(true);
