@@ -58,7 +58,7 @@ namespace Mechworks
         protected override string StrokeNoun => Reversed ? "pull" : "push";
 
         /// <summary>Direction the beam drives out, straight from the block variant.</summary>
-        BlockFacing PushFacing => (Block as BlockPiston)?.PushFacing ?? BlockFacing.NORTH;
+        public BlockFacing PushFacing => (Block as BlockPiston)?.PushFacing ?? BlockFacing.NORTH;
 
         /// <summary>
         /// Tip of the extended beam. The beam is not made of world blocks, so the machine
@@ -151,7 +151,7 @@ namespace Mechworks
             if (shape == null) return false;
 
             Shape body = shape.Clone();
-            body.RemoveElements(new[] { PistonHeadRenderer.HeadElement });
+            body.RemoveElements(PistonHeadRenderer.MovingElements);
 
             CompositeShape cshape = Block.Shape;
             tessThreadTesselator.TesselateShape(

@@ -21,12 +21,13 @@
 	// name theirs. That domain is "game" for all of them: the base game keeps assets in
 	// game/, survival/ and creative/ folders, but registers the lot under one domain.
 	// Unqualified paths silently resolve to mechworks:... and render white.
-	// The shape is modelled facing east; rotateY turns it to the variant's side.
+	// Modelled facing east. rotateY 90 turns +X into -Z (checked against vanilla
+	// grindingwheel and axle-arm), so north is 90 and south is 270, not the other way.
 	shapebytype: {
 		"*-east":  { base: "block/piston", rotateY: 0 },
-		"*-south": { base: "block/piston", rotateY: 90 },
+		"*-north": { base: "block/piston", rotateY: 90 },
 		"*-west":  { base: "block/piston", rotateY: 180 },
-		"*-north": { base: "block/piston", rotateY: 270 }
+		"*-south": { base: "block/piston", rotateY: 270 }
 	},
 	textures: {
 		wood: { base: "game:block/wood/planks/generic" },

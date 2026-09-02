@@ -1,4 +1,5 @@
 {
+	"comment": "Modelled facing EAST (+X): the head sits at the +X end and slides that way.",
 	"textureWidth": 16,
 	"textureHeight": 16,
 	"textures": {
@@ -18,65 +19,76 @@
 				"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 14.0, 14.0 ] },
 				"up":    { "texture": "#wood", "uv": [ 0.0, 0.0, 12.0, 14.0 ] },
 				"down":  { "texture": "#wood", "uv": [ 0.0, 0.0, 12.0, 14.0 ] }
-			},
-			"children": [
-				{
-					"name": "bandnorth",
-					"from": [ 2.0, 0.0, 0.0 ],
-					"to": [ 10.0, 16.0, 1.0 ],
-					"faces": {
-						"north": { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 16.0 ] },
-						"east":  { "texture": "#metal", "uv": [ 0.0, 0.0, 1.0, 16.0 ] },
-						"south": { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 16.0 ] },
-						"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 1.0, 16.0 ] },
-						"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 1.0 ] },
-						"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 1.0 ] }
-					}
-				},
-				{
-					"name": "bandsouth",
-					"from": [ 2.0, 0.0, 15.0 ],
-					"to": [ 10.0, 16.0, 16.0 ],
-					"faces": {
-						"north": { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 16.0 ] },
-						"east":  { "texture": "#metal", "uv": [ 0.0, 0.0, 1.0, 16.0 ] },
-						"south": { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 16.0 ] },
-						"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 1.0, 16.0 ] },
-						"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 1.0 ] },
-						"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 1.0 ] }
-					}
-				},
-				{
-					"name": "socketnorth",
-					"from": [ 3.0, 5.0, -1.0 ],
-					"to": [ 9.0, 11.0, 1.0 ],
-					"faces": {
-						"north": { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
-						"east":  { "texture": "#metal", "uv": [ 0.0, 0.0, 2.0, 6.0 ] },
-						"south": { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
-						"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 2.0, 6.0 ] },
-						"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 2.0 ] },
-						"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 2.0 ] }
-					}
-				},
-				{
-					"name": "socketsouth",
-					"from": [ 3.0, 5.0, 15.0 ],
-					"to": [ 9.0, 11.0, 17.0 ],
-					"faces": {
-						"north": { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
-						"east":  { "texture": "#metal", "uv": [ 0.0, 0.0, 2.0, 6.0 ] },
-						"south": { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
-						"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 2.0, 6.0 ] },
-						"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 2.0 ] },
-						"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 2.0 ] }
-					}
-				}
-			]
+			}
+		},
+		{
+			"name": "bandnorth",
+			"from": [ 2.0, 0.0, 0.0 ],
+			"to": [ 10.0, 16.0, 1.0 ],
+			"faces": {
+				"north": { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 16.0 ] },
+				"east":  { "texture": "#metal", "uv": [ 0.0, 0.0, 1.0, 16.0 ] },
+				"south": { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 16.0 ] },
+				"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 1.0, 16.0 ] },
+				"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 1.0 ] },
+				"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 1.0 ] }
+			}
+		},
+		{
+			"name": "bandsouth",
+			"from": [ 2.0, 0.0, 15.0 ],
+			"to": [ 10.0, 16.0, 16.0 ],
+			"faces": {
+				"north": { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 16.0 ] },
+				"east":  { "texture": "#metal", "uv": [ 0.0, 0.0, 1.0, 16.0 ] },
+				"south": { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 16.0 ] },
+				"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 1.0, 16.0 ] },
+				"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 1.0 ] },
+				"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 8.0, 1.0 ] }
+			}
+		},
+		{
+			"name": "socketnorth",
+			"from": [ 3.0, 5.0, 0.0 ],
+			"to": [ 9.0, 11.0, 2.0 ],
+			"faces": {
+				"north": { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
+				"east":  { "texture": "#metal", "uv": [ 0.0, 0.0, 2.0, 6.0 ] },
+				"south": { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
+				"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 2.0, 6.0 ] },
+				"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 2.0 ] },
+				"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 2.0 ] }
+			}
+		},
+		{
+			"name": "socketsouth",
+			"from": [ 3.0, 5.0, 14.0 ],
+			"to": [ 9.0, 11.0, 16.0 ],
+			"faces": {
+				"north": { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
+				"east":  { "texture": "#metal", "uv": [ 0.0, 0.0, 2.0, 6.0 ] },
+				"south": { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
+				"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 2.0, 6.0 ] },
+				"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 2.0 ] },
+				"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 2.0 ] }
+			}
+		},
+		{
+			"name": "headrod",
+			"comment": "Hidden inside the casing at rest, revealed as the head slides out. Flat, not a child: VS reads child coordinates relative to the parent.",
+			"from": [ 8.0, 6.0, 6.0 ],
+			"to": [ 12.0, 10.0, 10.0 ],
+			"faces": {
+				"north": { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] },
+				"east":  { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] },
+				"south": { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] },
+				"west":  { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] },
+				"up":    { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] },
+				"down":  { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] }
+			}
 		},
 		{
 			"name": "head",
-			"comment": "Slides along +X over one stroke. Kept out of the static mesh and drawn by PistonHeadRenderer.",
 			"from": [ 12.0, 3.0, 3.0 ],
 			"to": [ 16.0, 13.0, 13.0 ],
 			"faces": {
@@ -86,22 +98,7 @@
 				"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 10.0, 10.0 ] },
 				"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 4.0, 10.0 ] },
 				"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 4.0, 10.0 ] }
-			},
-			"children": [
-				{
-					"name": "headrod",
-					"from": [ 8.0, 6.0, 6.0 ],
-					"to": [ 12.0, 10.0, 10.0 ],
-					"faces": {
-						"north": { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] },
-						"east":  { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] },
-						"south": { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] },
-						"west":  { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] },
-						"up":    { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] },
-						"down":  { "texture": "#beam", "uv": [ 0.0, 0.0, 4.0, 4.0 ] }
-					}
-				}
-			]
+			}
 		}
 	]
 }

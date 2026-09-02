@@ -5,22 +5,22 @@ using Vintagestory.API.MathTools;
 namespace Mechworks
 {
     /// <summary>
-    /// Draws the piston head, the one part of the block that moves.
+    /// Draws the moving parts of the piston: the head plate and the stub of beam behind it.
     ///
-    /// The static mesh is tesselated without it (see BEPiston.OnTesselation) and this
-    /// renderer puts it back with a translation, so the head can slide a full cell over
-    /// the course of a stroke while the casing stays put.
+    /// Those elements are kept out of the block's static mesh (see BEPiston.OnTesselation)
+    /// and put back here with a translation, so they can slide a full cell over a stroke
+    /// while the casing stays put.
     ///
     /// Follows Vintage Kinematics' KineticPistonRenderer (MIT, Copyright (c) 2026 garward)
     /// — see THIRD-PARTY.md.
     /// </summary>
     public class PistonHeadRenderer : IRenderer
     {
-        /// <summary>Element the shape gives the moving part. Must match piston.json.</summary>
-        public const string HeadElement = "head";
+        /// <summary>Shape elements this renderer owns. Must match piston.json.</summary>
+        public static readonly string[] MovingElements = { "head", "headrod" };
 
-        /// <summary>How far the head travels over one stroke, in shape units (1/16ths).</summary>
-        const float TravelVoxels = 16f;
+        /// <summary>How far the head travels over one stroke, in blocks.</summary>
+        const float Travel = 1f;
 
         readonly ICoreClientAPI capi;
         readonly BEPiston piston;
@@ -57,20 +57,19 @@ namespace Mechworks
             prog.ViewMatrix = rpi.CameraMatrixOriginf;
             prog.ProjectionMatrix = rpi.CurrentProjectionMatrix;
 
-            // The element mesh comes out of the tesselator unrotated, so the block's own
-            // shape rotation is applied here. The head offset is translated last, which
-            // means it is expressed in the unrotated shape frame and the rotation carries
-            // it into the world — the model always slides along its own +X.
-            Vec3f rotRad = ShapeRotationRad();
-            float offset = HeadOffsetVoxels() / 16f;
+            // The mesh is baked with the block's own shape rotation, exactly like the static
+            // body, so there is no rotation to redo here. That leaves a plain translation
+            // along the world axis the piston actually points down — far less to get wrong
+            // than rotating the offset into place.
+            Vec3f dir = piston.PushFacing.Normalf;
+            float offset = HeadOffset();
 
             modelMat
                 .Identity()
-                .Translate((float)(pos.X - camPos.X), (float)(pos.Y - camPos.Y), (float)(pos.Z - camPos.Z))
-                .Translate(0.5f, 0.5f, 0.5f)
-                .Rotate(rotRad)
-                .Translate(-0.5f, -0.5f, -0.5f)
-                .Translate(offset, 0f, 0f);
+                .Translate(
+                    (float)(pos.X - camPos.X) + dir.X * offset,
+                    (float)(pos.Y - camPos.Y) + dir.Y * offset,
+                    (float)(pos.Z - camPos.Z) + dir.Z * offset);
 
             prog.ModelMatrix = modelMat.Values;
             rpi.RenderMultiTextureMesh(headMesh, "tex");
@@ -78,27 +77,17 @@ namespace Mechworks
         }
 
         /// <summary>
-        /// Where the head sits right now. At rest it is home; during a stroke it travels a
-        /// full cell, forwards when extending and backwards when drawing in, so it reads as
-        /// the leading edge of the beam that is about to appear or has just gone.
+        /// Where the head sits right now, in blocks along the push direction. At rest it is
+        /// home; during a stroke it travels a full cell, out when extending and back when
+        /// drawing in, so it reads as the leading edge of the beam about to appear or just
+        /// gone.
         /// </summary>
-        float HeadOffsetVoxels()
+        float HeadOffset()
         {
             if (!piston.Stroking) return 0f;
 
             float progress = GameMath.Clamp(piston.StrokeProgress, 0f, 1f);
-            return piston.Reversed
-                ? (1f - progress) * TravelVoxels
-                : progress * TravelVoxels;
-        }
-
-        Vec3f ShapeRotationRad()
-        {
-            CompositeShape shape = piston.Block?.Shape;
-            if (shape == null) return new Vec3f();
-
-            const float deg2rad = GameMath.PI / 180f;
-            return new Vec3f(shape.rotateX * deg2rad, shape.rotateY * deg2rad, shape.rotateZ * deg2rad);
+            return (piston.Reversed ? 1f - progress : progress) * Travel;
         }
 
         void BuildMesh()
@@ -106,20 +95,20 @@ namespace Mechworks
             meshBuilt = true;
 
             Block block = piston.Block;
-            if (block?.Shape?.Base == null) return;
+            CompositeShape cshape = block?.Shape;
+            if (cshape?.Base == null) return;
 
-            AssetLocation loc = block.Shape.Base.Clone()
+            AssetLocation loc = cshape.Base.Clone()
                 .WithPathPrefixOnce("shapes/")
                 .WithPathAppendixOnce(".json");
 
             Shape shape = Shape.TryGet(capi, loc);
             if (shape == null) return;
 
-            // "head/*", not "head": a bare name matches the element but drops its children,
-            // so the rod inside the head would silently vanish. The wildcard is what tells
-            // the matcher to recurse.
             capi.Tesselator.TesselateShape(
-                block, shape, out MeshData mesh, new Vec3f(), null, new[] { HeadElement + "/*" });
+                block, shape, out MeshData mesh,
+                new Vec3f(cshape.rotateX, cshape.rotateY, cshape.rotateZ),
+                null, MovingElements);
 
             if (mesh == null) return;
             headMesh = capi.Render.UploadMultiTextureMesh(mesh);
