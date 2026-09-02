@@ -25,6 +25,12 @@ namespace Mechworks
         /// <summary>Longest run of blocks one stroke may shift.</summary>
         public const int MaxPushedBlocks = 12;
 
+        /// <summary>
+        /// A quarter of a turn per stroke, so the piston cycles four times as fast as the
+        /// baseline machine at the same shaft speed.
+        /// </summary>
+        public override float RevolutionsPerStroke => 0.25f;
+
         int beams;
         int extension;
 

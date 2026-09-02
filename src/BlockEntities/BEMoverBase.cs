@@ -17,8 +17,12 @@ namespace Mechworks
     /// </summary>
     public abstract class BEMoverBase : BlockEntity
     {
-        /// <summary>How much accumulated rotation one stroke costs.</summary>
-        public const float RevolutionsPerStroke = 1f;
+        /// <summary>
+        /// How much accumulated rotation one stroke costs. Lower means the machine fires
+        /// more often at the same shaft speed. Per machine, since a piston nudging a block
+        /// along and a hoist hauling a load are not the same amount of work.
+        /// </summary>
+        public virtual float RevolutionsPerStroke => 1f;
 
         /// <summary>How long blocks spend in the air between the two cells.</summary>
         public const float MoveDurationSec = 0.4f;
