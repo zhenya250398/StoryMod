@@ -10,5 +10,10 @@
 	"item-glue": "Mechanical Glue",
 	"glue-added": "Glued ({0} marks total). Touching glued blocks move as one.",
 	"glue-removed": "Glue removed ({0} marks left).",
-	"glue-refused": "This block cannot be glued."
+	"glue-refused": "This block cannot be glued.",
+	"piston-beam-loaded": "Beam loaded: {0} in, reach {1}.",
+	"piston-beams-full": "Piston already holds {0} beams.",
+	"piston-beams-unloaded": "Took out {0} beams.",
+	"piston-retract-first": "Retract the beam before unloading.",
+	"piston-beams-mixed": "This piston already holds a different kind of beam."
 }

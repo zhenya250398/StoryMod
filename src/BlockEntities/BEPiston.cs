@@ -1,32 +1,100 @@
 using System.Collections.Generic;
 using Vintagestory.API.Common;
+using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 
 namespace Mechworks
 {
     /// <summary>
-    /// Piston: moves the run of blocks in front of it one cell per stroke, away or back.
+    /// Piston: drives a beam out of itself to shove blocks away, and draws it back in to
+    /// pull them closer. One cell per stroke.
     ///
-    /// The run does not teleport — <see cref="BEMoverBase"/> lifts it into an
-    /// <see cref="EntityMovingBlocks"/> which flies it across and puts it back down.
+    /// Reach is set by how many beams have been loaded. One beam always stays inside as a
+    /// counterweight, so a full load of four reaches three cells. The beams are a resource
+    /// held by the machine, not blocks in the world — the piston stays one block wide
+    /// whatever its extension.
     /// </summary>
     public class BEPiston : BEMoverBase
     {
-        /// <summary>Longest run of blocks one stroke may shift. Refuses beyond this.</summary>
+        /// <summary>Most beams the machine will hold.</summary>
+        public const int MaxBeams = 4;
+
+        /// <summary>Beams that stay inside as a counterweight and never extend.</summary>
+        public const int CounterweightBeams = 1;
+
+        /// <summary>Longest run of blocks one stroke may shift.</summary>
         public const int MaxPushedBlocks = 12;
+
+        int beams;
+        int extension;
+
+        /// <summary>
+        /// Exactly which beam went in, so exactly that comes back out. Guessing a code
+        /// would mean guessing both the asset domain and the wood type.
+        /// </summary>
+        string beamCode;
+
+        /// <summary>Beams loaded into the machine.</summary>
+        public int Beams => beams;
+
+        /// <summary>How far this piston can drive its beam out, in cells.</summary>
+        public int Reach => System.Math.Max(0, beams - CounterweightBeams);
+
+        /// <summary>How far the beam is currently driven out, in cells.</summary>
+        public int Extension => extension;
+
+        public bool CanAcceptBeam => beams < MaxBeams;
+
+        /// <summary>Code of the beams held, null when empty.</summary>
+        public string BeamCode => beamCode;
 
         protected override string StrokeNoun => Reversed ? "pull" : "push";
 
-        BlockFacing PushFacing => (Block as BlockPiston)?.PushFacing ?? BlockFacing.NORTH;
+        /// <summary>
+        /// The block variant names the face the axle plugs into, the same convention the
+        /// rope hoist uses. The beam drives out of the opposite face.
+        /// </summary>
+        BlockFacing PushFacing => (Block as BlockPiston)?.PushFacing ?? BlockFacing.SOUTH;
+
+        /// <summary>
+        /// Loads one beam. False when full, or when it does not match the beams already
+        /// inside — a mixed load would have no honest way to give itself back.
+        /// </summary>
+        public bool AddBeam(string code)
+        {
+            if (!CanAcceptBeam) return false;
+            if (beams > 0 && beamCode != code) return false;
+
+            beams++;
+            beamCode = code;
+            MarkDirty(true);
+            return true;
+        }
+
+        /// <summary>
+        /// Takes every beam back out and reports how many. Refuses while the beam is
+        /// driven out — that stroke has to be undone first.
+        /// </summary>
+        public int RemoveAllBeams()
+        {
+            if (extension > 0) return 0;
+
+            int taken = beams;
+            beams = 0;
+            beamCode = null;
+            MarkDirty(true);
+            return taken;
+        }
 
         protected override bool TryMove()
         {
-            // Which way the shaft turns decides whether we shove or drag.
-            return Reversed ? TryPull() : TryPush();
+            return Reversed ? TryRetract() : TryExtend();
         }
 
-        bool TryPush()
+        bool TryExtend()
         {
+            if (extension >= Reach) return false;   // beam is already all the way out
+
             BlockFacing facing = PushFacing;
             List<BlockPos> chain = CollectPushChain(Api.World.BlockAccessor, facing);
             if (chain == null) return false;
@@ -35,28 +103,39 @@ namespace Mechworks
             // and not just the line of blocks directly ahead of it.
             List<BlockPos> group = ExpandThroughGlue(chain);
             if (group == null) return false;
+            if (!StartMove(group, facing)) return false;
 
-            return StartMove(group, facing);
+            extension++;
+            MarkDirty(true);
+            return true;
         }
 
-        bool TryPull()
+        bool TryRetract()
         {
+            if (extension <= 0) return false;       // nothing to draw back in
+
             BlockFacing facing = PushFacing;
             List<BlockPos> chain = CollectPullChain(Api.World.BlockAccessor, facing);
-            if (chain == null) return false;
 
-            List<BlockPos> group = ExpandThroughGlue(chain);
-            if (group == null) return false;
+            // Drawing the beam back in works with nothing attached to it too: the machine
+            // still has to return to rest before it can extend again.
+            if (chain != null)
+            {
+                List<BlockPos> group = ExpandThroughGlue(chain);
+                if (group == null) return false;
+                if (!StartMove(group, facing.Opposite)) return false;
+            }
 
-            return StartMove(group, facing.Opposite);
+            extension--;
+            MarkDirty(true);
+            return true;
         }
 
         /// <summary>
-        /// Walks forward from the piston collecting the contiguous run of blocks to move,
-        /// stopping at the first free cell that the run will be shifted into.
-        /// Returns null when the push is not legal at all: nothing in front, an immovable
-        /// block in the way, the run longer than <see cref="MaxPushedBlocks"/>, or the
-        /// path leaving loaded chunks.
+        /// Walks forward collecting the contiguous run of blocks to move, stopping at the
+        /// first free cell that the run will be shifted into. Null when the push is not
+        /// legal: nothing in front, an immovable block in the way, the run longer than
+        /// MaxPushedBlocks, or the path leaving loaded chunks.
         /// </summary>
         List<BlockPos> CollectPushChain(IBlockAccessor ba, BlockFacing facing)
         {
@@ -82,13 +161,10 @@ namespace Mechworks
         }
 
         /// <summary>
-        /// Finds the single block a pull would grab: the one sitting just beyond the free
-        /// cell in front of the piston.
-        ///
-        /// Deliberately no reaching across a wider gap, and deliberately just one block —
-        /// pushing shoves a whole contiguous run, pulling takes hold of one thing. Blocks
-        /// merely resting against each other are not attached; glue is what makes a group,
-        /// and ExpandThroughGlue adds it afterwards.
+        /// The single block a retraction drags back: the one just beyond the free cell in
+        /// front. Deliberately one block — pushing shoves a whole run, pulling takes hold
+        /// of one thing. Touching is not attachment; glue is, and ExpandThroughGlue adds
+        /// the rest of the group afterwards.
         /// </summary>
         List<BlockPos> CollectPullChain(IBlockAccessor ba, BlockFacing facing)
         {
@@ -106,5 +182,36 @@ namespace Mechworks
             return new List<BlockPos> { target };
         }
 
+        public override void ToTreeAttributes(ITreeAttribute tree)
+        {
+            base.ToTreeAttributes(tree);
+            tree.SetInt("beams", beams);
+            tree.SetInt("extension", extension);
+            tree.SetString("beamCode", beamCode ?? "");
+        }
+
+        public override void FromTreeAttributes(ITreeAttribute tree, IWorldAccessor worldAccessForResolve)
+        {
+            base.FromTreeAttributes(tree, worldAccessForResolve);
+            beams = tree.GetInt("beams");
+            extension = tree.GetInt("extension");
+            beamCode = tree.GetString("beamCode");
+            if (string.IsNullOrEmpty(beamCode)) beamCode = null;
+        }
+
+        public override void GetBlockInfo(IPlayer forPlayer, System.Text.StringBuilder sb)
+        {
+            if (beams == 0)
+            {
+                sb.AppendLine("No beams loaded");
+            }
+            else
+            {
+                sb.AppendLine(string.Format("Beams: {0}/{1}, reach {2}", beams, MaxBeams, Reach));
+                sb.AppendLine(string.Format("Extended {0}/{1}", extension, Reach));
+            }
+
+            base.GetBlockInfo(forPlayer, sb);
+        }
     }
 }
