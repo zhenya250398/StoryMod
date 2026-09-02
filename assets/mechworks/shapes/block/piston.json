@@ -354,6 +354,76 @@
 			}
 		},
 		{
+			"name": "stub",
+			"comment": "Fills the gap the head leaves behind when it rides out. Static: at rest it hides inside the head plate, which is wider in y/z, so it only shows once the head has moved away. Edges are inset a quarter voxel to avoid sharing a plane with the head or the casing.",
+			"from": [
+				11.75,
+				6.0,
+				6.0
+			],
+			"to": [
+				15.75,
+				10.0,
+				10.0
+			],
+			"faces": {
+				"north": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						4.0,
+						4.0
+					]
+				},
+				"east": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						4.0,
+						4.0
+					]
+				},
+				"south": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						4.0,
+						4.0
+					]
+				},
+				"west": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						4.0,
+						4.0
+					]
+				},
+				"up": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						4.0,
+						4.0
+					]
+				},
+				"down": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						4.0,
+						4.0
+					]
+				}
+			}
+		},
+		{
 			"name": "head",
 			"from": [
 				12.0,
