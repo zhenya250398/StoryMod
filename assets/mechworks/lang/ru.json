@@ -15,5 +15,10 @@
 	"piston-beams-full": "В поршне уже {0} балок.",
 	"piston-beams-unloaded": "Извлечено балок: {0}.",
 	"piston-retract-first": "Сначала втяни балку обратно.",
-	"piston-beams-mixed": "В этом поршне уже балки другого типа."
+	"piston-beams-mixed": "В этом поршне уже балки другого типа.",
+	"piston-no-room-behind": "Сзади поршня нет места для ещё одной балки.",
+	"block-pistonbeam-north": "Балка поршня",
+	"block-pistonbeam-east": "Балка поршня",
+	"block-pistonbeam-south": "Балка поршня",
+	"block-pistonbeam-west": "Балка поршня"
 }

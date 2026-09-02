@@ -100,9 +100,10 @@ namespace Mechworks
 
             if (!piston.AddBeam(code))
             {
-                Tell(byPlayer, Lang.Get(piston.CanAcceptBeam
-                    ? "mechworks:piston-beams-mixed"
-                    : "mechworks:piston-beams-full", BEPiston.MaxBeams));
+                string why = !piston.CanAcceptBeam ? "mechworks:piston-beams-full"
+                    : !piston.HasRoomBehind() ? "mechworks:piston-no-room-behind"
+                    : "mechworks:piston-beams-mixed";
+                Tell(byPlayer, Lang.Get(why, BEPiston.MaxBeams));
                 return;
             }
 

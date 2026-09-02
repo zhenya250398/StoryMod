@@ -1,0 +1,47 @@
+{
+	code: "pistonbeam",
+	// Placed and removed only by the piston that owns it, never by the player, so it is
+	// kept out of the creative inventory and drops nothing when broken. Breaking one just
+	// leaves a gap the piston fills again on its next stroke.
+	entityClass: null,
+	variantgroups: [
+		{ code: "side", loadFromProperties: "abstract/horizontalorientation" }
+	],
+	creativeinventory: {},
+	drawtype: "json",
+	// The shape runs along X, so the two axes need different rotations.
+	shapebytype: {
+		"*-east": { base: "block/beam", rotateY: 0 },
+		"*-west": { base: "block/beam", rotateY: 0 },
+		"*-north": { base: "block/beam", rotateY: 90 },
+		"*-south": { base: "block/beam", rotateY: 90 }
+	},
+	textures: {
+		wood: { base: "survival:block/wood/debarked/oak" }
+	},
+	attributes: {
+		// A beam belongs to its piston. No other machine may pick it up and carry it off.
+		mechworksImmovable: true
+	},
+	blockmaterial: "Wood",
+	replaceable: 500,
+	resistance: 1.5,
+	lightAbsorption: 0,
+	sideOpaque: { all: false },
+	sidesolid: { all: false },
+	faceCullMode: "NeverCull",
+	rainPermeable: true,
+	drops: [],
+	collisionSelectionBoxByType: {
+		"*-east": { x1: 0, y1: 0.375, z1: 0.375, x2: 1, y2: 0.625, z2: 0.625 },
+		"*-west": { x1: 0, y1: 0.375, z1: 0.375, x2: 1, y2: 0.625, z2: 0.625 },
+		"*-north": { x1: 0.375, y1: 0.375, z1: 0, x2: 0.625, y2: 0.625, z2: 1 },
+		"*-south": { x1: 0.375, y1: 0.375, z1: 0, x2: 0.625, y2: 0.625, z2: 1 }
+	},
+	sounds: {
+		hit: "survival:block/planks",
+		break: "survival:block/planks",
+		place: "survival:block/planks",
+		walk: "survival:walk/wood"
+	}
+}

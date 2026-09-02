@@ -15,5 +15,10 @@
 	"piston-beams-full": "Piston already holds {0} beams.",
 	"piston-beams-unloaded": "Took out {0} beams.",
 	"piston-retract-first": "Retract the beam before unloading.",
-	"piston-beams-mixed": "This piston already holds a different kind of beam."
+	"piston-beams-mixed": "This piston already holds a different kind of beam.",
+	"piston-no-room-behind": "No room behind the piston for another beam.",
+	"block-pistonbeam-north": "Piston Beam",
+	"block-pistonbeam-east": "Piston Beam",
+	"block-pistonbeam-south": "Piston Beam",
+	"block-pistonbeam-west": "Piston Beam"
 }

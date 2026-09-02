@@ -74,11 +74,31 @@ namespace Mechworks
         {
             if (!CanAcceptBeam) return false;
             if (beams > 0 && beamCode != code) return false;
+            if (!HasRoomBehind()) return false;
 
             beams++;
             beamCode = code;
+            SyncBeamBlocks();
             MarkDirty(true);
             return true;
+        }
+
+        /// <summary>
+        /// A loaded beam has to physically go somewhere: it trails out the back, so the
+        /// next cell back has to be clear before another one will fit.
+        /// </summary>
+        public bool HasRoomBehind()
+        {
+            if (Api?.World == null) return true;
+
+            // One more beam means one more cell of trailing beam behind the machine.
+            BlockPos at = Pos.AddCopy(PushFacing.Opposite, BackBeams + 1);
+            IBlockAccessor ba = Api.World.BlockAccessor;
+
+            if (ba.GetChunkAtBlockPos(at) == null) return false;
+
+            Block current = ba.GetBlock(at);
+            return IsFree(current) || IsPistonBeam(current);
         }
 
         /// <summary>
@@ -92,8 +112,84 @@ namespace Mechworks
             int taken = beams;
             beams = 0;
             beamCode = null;
+            SyncBeamBlocks();
             MarkDirty(true);
             return taken;
+        }
+
+        public override void Initialize(ICoreAPI api)
+        {
+            base.Initialize(api);
+
+            // Chunks can come back with the beam cells missing or stale; the machine's own
+            // counters are the truth, so restate them in the world.
+            SyncBeamBlocks();
+        }
+
+        public override void OnBlockRemoved()
+        {
+            beams = 0;
+            extension = 0;
+            SyncBeamBlocks();
+            base.OnBlockRemoved();
+        }
+
+        /// <summary>Cells the beam occupies in front of the piston.</summary>
+        int FrontBeams => extension;
+
+        /// <summary>Cells the beam occupies behind the piston.</summary>
+        int BackBeams => System.Math.Max(0, beams - CounterweightBeams - extension);
+
+        /// <summary>
+        /// Writes the beam into the world to match the machine's own counters: as much as
+        /// is extended in front, the remainder trailing out the back, nothing anywhere
+        /// else. Driving it from state rather than patching cells one at a time means a
+        /// beam block broken by a player simply comes back on the next stroke.
+        /// </summary>
+        void SyncBeamBlocks()
+        {
+            if (Api?.Side != EnumAppSide.Server) return;
+
+            BlockFacing facing = PushFacing;
+            Block beam = Api.World.GetBlock(new AssetLocation("mechworks", "pistonbeam-" + facing.Code));
+            if (beam == null || beam.Id == 0) return;
+
+            IBlockAccessor ba = Api.World.BlockAccessor;
+            int front = FrontBeams;
+            int back = BackBeams;
+
+            for (int i = 1; i <= MaxBeams; i++)
+            {
+                SetBeamCell(ba, beam, Pos.AddCopy(facing, i), i <= front);
+                SetBeamCell(ba, beam, Pos.AddCopy(facing.Opposite, i), i <= back);
+            }
+        }
+
+        void SetBeamCell(IBlockAccessor ba, Block beam, BlockPos at, bool wanted)
+        {
+            if (ba.GetChunkAtBlockPos(at) == null) return;
+
+            Block current = ba.GetBlock(at);
+            bool isBeam = IsPistonBeam(current);
+
+            if (wanted)
+            {
+                if (isBeam) return;
+                if (!IsFree(current)) return;   // someone else's block: leave it be
+                ba.SetBlock(beam.Id, at);
+                ba.MarkBlockDirty(at);
+                return;
+            }
+
+            if (!isBeam) return;
+            ba.SetBlock(0, at);
+            ba.MarkBlockDirty(at);
+        }
+
+        public static bool IsPistonBeam(Block block)
+        {
+            string path = block?.Code?.Path;
+            return path != null && path.StartsWith("pistonbeam", System.StringComparison.Ordinal);
         }
 
         protected override bool TryMove()
@@ -127,6 +223,7 @@ namespace Mechworks
             }
 
             extension++;
+            SyncBeamBlocks();   // beam advances a cell in front, gives one up at the back
             MarkDirty(true);
             return true;
         }
@@ -136,18 +233,28 @@ namespace Mechworks
             if (extension <= 0) return false;       // nothing to draw back in
 
             BlockFacing facing = PushFacing;
-            List<BlockPos> chain = CollectPullChain(Api.World.BlockAccessor, facing);
+            IBlockAccessor ba = Api.World.BlockAccessor;
+
+            // The beam gives up its outermost cell first, otherwise the load it is dragging
+            // back has nowhere to land — the beam itself would be standing in the way.
+            SetBeamCell(ba, null, BeamTip, false);
+
+            List<BlockPos> chain = CollectPullChain(ba, facing);
 
             // Drawing the beam back in works with nothing attached to it too: the machine
             // still has to return to rest before it can extend again.
             if (chain != null)
             {
                 List<BlockPos> group = ExpandThroughGlue(chain);
-                if (group == null) return false;
-                if (!StartMove(group, facing.Opposite)) return false;
+                if (group == null || !StartMove(group, facing.Opposite))
+                {
+                    SyncBeamBlocks();   // stroke refused: put the beam cell back
+                    return false;
+                }
             }
 
             extension--;
+            SyncBeamBlocks();
             MarkDirty(true);
             return true;
         }
