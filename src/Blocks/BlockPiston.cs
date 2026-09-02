@@ -11,29 +11,34 @@ namespace Mechworks
     /// the comment on deriving from BlockMPBase in <see cref="BlockRopeHoist"/> for why
     /// that is mandatory and not merely tidy.
     ///
-    /// The "side" variant names the face the axle plugs into, matching the rope hoist. The
-    /// beam drives out of the opposite face, so a piston is placed facing its own axle.
-    /// Which face you plug into therefore decides whether a given shaft extends or
-    /// retracts it: the two opposite sockets give opposite rotation senses, which is the
-    /// only reversing mechanism vanilla offers.
+    /// The "side" variant is the direction the beam drives out. The axle plugs into one of
+    /// the two flanks, never the front or the back, which is where a real crank would sit.
+    ///
+    /// Which flank you use decides whether the piston extends or retracts on a given
+    /// shaft: power arriving from the left and from the right give opposite rotation
+    /// senses. That is the only reversing mechanism vanilla offers.
     /// </summary>
     public class BlockPiston : BlockMPBase
     {
-        /// <summary>Face that accepts the axle, from the "side" variant.</summary>
-        public BlockFacing PowerFacing { get; private set; } = BlockFacing.NORTH;
-
-        /// <summary>Face the beam drives out of — away from the axle.</summary>
-        public BlockFacing PushFacing => PowerFacing.Opposite;
+        /// <summary>Direction the beam drives out, from the "side" variant.</summary>
+        public BlockFacing PushFacing { get; private set; } = BlockFacing.NORTH;
 
         public override void OnLoaded(ICoreAPI api)
         {
             base.OnLoaded(api);
-            PowerFacing = BlockFacing.FromCode(Variant["side"]) ?? BlockFacing.NORTH;
+            PushFacing = BlockFacing.FromCode(Variant["side"]) ?? BlockFacing.NORTH;
         }
 
+        /// <summary>The two flanks take the axle; front, back, top and bottom do not.</summary>
         public override bool HasMechPowerConnectorAt(IWorldAccessor world, BlockPos pos, BlockFacing face, BlockMPBase forBlock)
         {
-            return face == PowerFacing;
+            return IsFlank(face, PushFacing);
+        }
+
+        static bool IsFlank(BlockFacing face, BlockFacing pushFacing)
+        {
+            if (face == BlockFacing.UP || face == BlockFacing.DOWN) return false;
+            return face != pushFacing && face != pushFacing.Opposite;
         }
 
         public override void DidConnectAt(IWorldAccessor world, BlockPos pos, BlockFacing face)
@@ -48,8 +53,14 @@ namespace Mechworks
             // HorizontalOrientable swapped in the rotated variant, so re-read the facing
             // off the world rather than trusting this instance's own.
             Block placed = world.BlockAccessor.GetBlock(blockSel.Position);
-            BlockFacing placedPower = BlockFacing.FromCode(placed?.Variant["side"]) ?? PowerFacing;
-            tryConnect(world, byPlayer, blockSel.Position, placedPower);
+            BlockFacing placedPush = BlockFacing.FromCode(placed?.Variant["side"]) ?? PushFacing;
+
+            // Either flank may already have a shaft waiting; the first one that takes wins.
+            foreach (BlockFacing face in BlockFacing.HORIZONTALS)
+            {
+                if (!IsFlank(face, placedPush)) continue;
+                if (tryConnect(world, byPlayer, blockSel.Position, face)) break;
+            }
 
             return true;
         }

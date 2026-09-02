@@ -56,11 +56,15 @@ namespace Mechworks
 
         protected override string StrokeNoun => Reversed ? "pull" : "push";
 
+        /// <summary>Direction the beam drives out, straight from the block variant.</summary>
+        BlockFacing PushFacing => (Block as BlockPiston)?.PushFacing ?? BlockFacing.NORTH;
+
         /// <summary>
-        /// The block variant names the face the axle plugs into, the same convention the
-        /// rope hoist uses. The beam drives out of the opposite face.
+        /// Tip of the extended beam. The beam is not made of world blocks, so the machine
+        /// has to remember where its own reach currently ends; otherwise after the first
+        /// stroke it looks at the empty cell it just vacated and finds nothing to push.
         /// </summary>
-        BlockFacing PushFacing => (Block as BlockPiston)?.PushFacing ?? BlockFacing.SOUTH;
+        BlockPos BeamTip => Pos.AddCopy(PushFacing, Extension);
 
         /// <summary>
         /// Loads one beam. False when full, or when it does not match the beams already
@@ -146,7 +150,7 @@ namespace Mechworks
         List<BlockPos> CollectPushChain(IBlockAccessor ba, BlockFacing facing)
         {
             List<BlockPos> chain = new List<BlockPos>();
-            BlockPos cur = Pos.AddCopy(facing);
+            BlockPos cur = BeamTip.AddCopy(facing);
 
             while (true)
             {
@@ -174,7 +178,8 @@ namespace Mechworks
         /// </summary>
         List<BlockPos> CollectPullChain(IBlockAccessor ba, BlockFacing facing)
         {
-            BlockPos landing = Pos.AddCopy(facing);
+            // The load rides on the beam tip, so it comes back to where the tip is now.
+            BlockPos landing = BeamTip.Copy();
             if (ba.GetChunkAtBlockPos(landing) == null) return null;
             if (!IsFree(ba.GetBlock(landing))) return null;    // nothing to pull it into
 
