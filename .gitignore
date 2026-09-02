@@ -3,3 +3,6 @@ obj/
 *.user
 .vs/
 .idea/
+
+# Local Claude Code settings (machine-specific paths and permissions)
+.claude/settings.local.json
