@@ -65,14 +65,18 @@
     </ItemGroup>
     <!-- A running game holds mechworks.dll open. Don't fail the whole build over it —
          the compile is still valid, the deploy just has to wait for the game to close. -->
-    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(ModDeployDir)" Retries="0" ContinueOnError="true">
-      <Output TaskParameter="CopiedFiles" ItemName="DeployedFiles" />
+    <!-- The dll is copied on its own so the check below can be about the dll specifically.
+         Judging success by "did anything copy" is useless: modinfo.json and the pdb copy
+         happily while the game holds the dll, and the build then claims to have deployed. -->
+    <Copy SourceFiles="$(OutputPath)mechworks.dll" DestinationFolder="$(ModDeployDir)" Retries="0" ContinueOnError="true">
+      <Output TaskParameter="CopiedFiles" ItemName="DeployedDll" />
     </Copy>
+    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(ModDeployDir)" Retries="0" ContinueOnError="true" />
     <Copy SourceFiles="@(DeployAssets)" DestinationFiles="@(DeployAssets->'$(ModDeployDir)\assets\%(RecursiveDir)%(Filename)%(Extension)')" Retries="0" ContinueOnError="true" />
 
-    <Warning Condition="'@(DeployedFiles)' == ''"
+    <Warning Condition="'@(DeployedDll)' == ''"
              Text="Build OK but NOT deployed - Vintage Story is running and holds mechworks.dll. Close the game and rebuild." />
-    <Message Condition="'@(DeployedFiles)' != ''" Importance="high" Text="Deployed mechworks -> $(ModDeployDir)" />
+    <Message Condition="'@(DeployedDll)' != ''" Importance="high" Text="Deployed mechworks -> $(ModDeployDir)" />
   </Target>
 
 </Project>
