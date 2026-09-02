@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:wiki.vintagestory.at)",
+      "WebSearch",
+      "PowerShell(Write-Output \"--- dotnet ---\"; try { dotnet --version } catch { \"no dotnet\" }; Write-Output \"--- sdks ---\"; try { dotnet --list-sdks } catch {}; Write-Output \"--- VINTAGE_STORY env ---\"; $env:VINTAGE_STORY; Write-Output \"--- appdata vs ---\"; if \\(Test-Path \"$env:AppData\\\\Vintagestory\"\\) { Get-ChildItem \"$env:AppData\\\\Vintagestory\" | Select-Object -First 25 Name } else { \"not found in AppData\" }; Write-Output \"--- cwd ---\"; Get-ChildItem \"C:\\\\Users\\\\zhenya\\\\Desktop\\\\StoryMod\" -Force | Select-Object Name,Length)",
+      "PowerShell(Get-ChildItem \"$env:AppData\\\\VintagestoryData\\\\Mods\" | Select-Object Name,Length,LastWriteTime)",
+      "PowerShell(Get-Content \"$env:AppData\\\\VintagestoryData\\\\Logs\\\\client-main.log\" -TotalCount 20)"
+    ]
+  }
+}

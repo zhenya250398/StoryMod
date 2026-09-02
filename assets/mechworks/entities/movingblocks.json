@@ -1,0 +1,21 @@
+{
+	"code": "movingblocks",
+	"class": "MechworksMovingBlocks",
+	"tags": [ "inanimate" ],
+	"hitboxSize": { "x": 1, "y": 1 },
+	"selectionBoxSize": { "x": 0, "y": 0 },
+	"eyeHeight": 0.5,
+	"client": {
+		// Empty shape on purpose: the standard renderer draws nothing and
+		// MovingBlocksRenderer draws the carried blocks instead.
+		"renderer": "Shape",
+		"shape": { "base": "entity/movingblocks" },
+		// No interpolateposition on purpose. Position is a pure function of Progress and
+		// both sides compute it identically; the behavior would drag Pos back towards the
+		// networked ServerPos, which nothing updates, and clobber the lerp.
+		"behaviors": []
+	},
+	"server": {
+		"behaviors": []
+	}
+}

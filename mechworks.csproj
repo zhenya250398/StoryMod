@@ -1,0 +1,78 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>mechworks</AssemblyName>
+    <RootNamespace>Mechworks</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- Game dlls are resolved at runtime by the game, never copied next to ours -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <!-- Game install. Override on the command line if VINTAGE_STORY is not set:
+       dotnet build -p:VintagestoryDir="S:\path\to\Vintagestory" -->
+  <PropertyGroup>
+    <VintagestoryDir Condition="'$(VintagestoryDir)' == ''">$(VINTAGE_STORY)</VintagestoryDir>
+    <ModDeployDir Condition="'$(ModDeployDir)' == ''">$(APPDATA)\VintagestoryData\Mods\mechworks</ModDeployDir>
+  </PropertyGroup>
+
+  <Target Name="CheckVintagestoryDir" BeforeTargets="BeforeBuild">
+    <Error Condition="'$(VintagestoryDir)' == ''"
+           Text="VINTAGE_STORY is not set. Set the env var or pass -p:VintagestoryDir=..." />
+    <Error Condition="!Exists('$(VintagestoryDir)\VintagestoryAPI.dll')"
+           Text="VintagestoryAPI.dll not found in '$(VintagestoryDir)'. Wrong game directory?" />
+  </Target>
+
+  <ItemGroup>
+    <Reference Include="VintagestoryAPI">
+      <HintPath>$(VintagestoryDir)\VintagestoryAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="VintagestoryLib">
+      <HintPath>$(VintagestoryDir)\VintagestoryLib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Mechanical power (MPConsumer, MechanicalNetwork) lives here -->
+    <Reference Include="VSSurvivalMod">
+      <HintPath>$(VintagestoryDir)\Mods\VSSurvivalMod.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="VSEssentials">
+      <HintPath>$(VintagestoryDir)\Mods\VSEssentials.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="modinfo.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="assets\**\*.*" CopyToOutputDirectory="PreserveNewest" LinkBase="assets" />
+  </ItemGroup>
+
+  <!-- Drop the built mod straight into the game's Mods folder as an unpacked mod,
+       so F5 -> game -> mod is already there. -->
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(ModDeployDir)' != ''">
+    <ItemGroup>
+      <DeployFiles Include="$(OutputPath)mechworks.dll" />
+      <DeployFiles Include="$(OutputPath)mechworks.pdb" Condition="Exists('$(OutputPath)mechworks.pdb')" />
+      <DeployFiles Include="$(OutputPath)modinfo.json" />
+      <DeployAssets Include="$(OutputPath)assets\**\*.*" />
+    </ItemGroup>
+    <!-- A running game holds mechworks.dll open. Don't fail the whole build over it —
+         the compile is still valid, the deploy just has to wait for the game to close. -->
+    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(ModDeployDir)" Retries="0" ContinueOnError="true">
+      <Output TaskParameter="CopiedFiles" ItemName="DeployedFiles" />
+    </Copy>
+    <Copy SourceFiles="@(DeployAssets)" DestinationFiles="@(DeployAssets->'$(ModDeployDir)\assets\%(RecursiveDir)%(Filename)%(Extension)')" Retries="0" ContinueOnError="true" />
+
+    <Warning Condition="'@(DeployedFiles)' == ''"
+             Text="Build OK but NOT deployed - Vintage Story is running and holds mechworks.dll. Close the game and rebuild." />
+    <Message Condition="'@(DeployedFiles)' != ''" Importance="high" Text="Deployed mechworks -> $(ModDeployDir)" />
+  </Target>
+
+</Project>

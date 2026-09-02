@@ -1,0 +1,15 @@
+{
+  "type": "code",
+  "modid": "mechworks",
+  "name": "Mechworks",
+  "authors": ["zhenya"],
+  "description": "Mechanical contraptions: blocks that move other blocks, driven by vanilla mechanical power.",
+  "version": "0.1.0",
+  "side": "universal",
+  "requiredonclient": true,
+  "requiredonserver": true,
+  "dependencies": {
+    "game": "1.22.0",
+    "survival": ""
+  }
+}

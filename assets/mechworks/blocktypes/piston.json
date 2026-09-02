@@ -1,0 +1,49 @@
+{
+	code: "piston",
+	class: "MechworksPiston",
+	entityClass: "MechworksPiston",
+	behaviors: [{ name: "HorizontalOrientable" }],
+	// Vanilla mechanical power hookup — registered by VSSurvivalMod, no code needed.
+	//
+	// mechPartShape: null is required, not decorative. Without it MPConsumer falls back
+	// to Block.Shape and hands it to the rotating-parts renderer, which cannot tesselate
+	// a plain cube and dies with a NullReferenceException on placement. MechNetworkRenderer
+	// .AddDevice() early-returns on a null shape, which is how vanilla quern and
+	// grindingwheel opt out. Set this to a real shape only once the piston has a
+	// spinning part worth drawing.
+	entityBehaviors: [{ name: "MPConsumer", properties: { resistance: 0.3, mechPartShape: null } }],
+	variantgroups: [
+		{ code: "side", loadFromProperties: "abstract/horizontalorientation" }
+	],
+	creativeinventory: { "general": ["*-north"], "mechanics": ["*-north"] },
+	drawtype: "Cube",
+	// Asset paths resolve against THIS file's domain (mechworks), so every vanilla
+	// asset has to name its own domain explicitly: shapes live in game, textures and
+	// sounds in survival. Unqualified paths silently resolve to mechworks:... and fail.
+	shape: { base: "game:block/basic/cube" },
+	textures: {
+		all: { base: "survival:block/wood/planks/generic" }
+	},
+	blockmaterial: "Wood",
+	resistance: 3.5,
+	lightAbsorption: 0,
+	maxStackSize: 8,
+	// All four rotations drop the same item; orientation is chosen on placement.
+	drops: [
+		{ type: "block", code: "piston-north", quantity: { avg: 1 } }
+	],
+	heldTpIdleAnimation: "holdbothhandslarge",
+	heldRightReadyAnimation: "heldblockready",
+	heldTpUseAnimation: "twohandplaceblock",
+	tpHandTransform: {
+		translation: { x: -1.23, y: -0.91, z: -0.8 },
+		rotation: { x: -2, y: 25, z: -78 },
+		scale: 0.4
+	},
+	sounds: {
+		hit: "survival:block/planks",
+		break: "survival:block/planks",
+		place: "survival:block/planks",
+		walk: "survival:walk/wood"
+	}
+}

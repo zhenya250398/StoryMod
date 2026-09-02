@@ -1,0 +1,26 @@
+{
+	code: "glue",
+	class: "MechworksGlue",
+	// Reusing vanilla beeswax art. Asset paths resolve against this file's domain,
+	// so the survival domain has to be named explicitly.
+	shape: { base: "survival:item/resource/beeswax" },
+	texture: { base: "survival:item/resource/beeswax" },
+	creativeinventory: { "general": ["*"], "items": ["*"], "mechanics": ["*"] },
+	maxstacksize: 1,
+	guiTransform: {
+		translation: { x: 0, y: 0, z: 0 },
+		rotation: { x: 142, y: 9, z: 1 },
+		origin: { x: 0.45, y: 0.1, z: 0.5 },
+		scale: 3.36
+	},
+	tpHandTransform: {
+		translation: { x: -1.5, y: -1.6, z: -1.85 },
+		rotation: { x: 3, y: -81, z: -92 }
+	},
+	groundTransform: {
+		translation: { x: 0, y: 0.17, z: 0 },
+		rotation: { x: -1, y: 0, z: 0 },
+		origin: { x: 0.5, y: 0.2, z: 0.5299 },
+		scale: 4
+	}
+}

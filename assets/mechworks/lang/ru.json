@@ -1,0 +1,14 @@
+{
+	"block-piston-north": "Поршень",
+	"block-piston-east": "Поршень",
+	"block-piston-south": "Поршень",
+	"block-piston-west": "Поршень",
+	"block-ropehoist-north": "Верёвочный подъёмник",
+	"block-ropehoist-east": "Верёвочный подъёмник",
+	"block-ropehoist-south": "Верёвочный подъёмник",
+	"block-ropehoist-west": "Верёвочный подъёмник",
+	"item-glue": "Механический клей",
+	"glue-added": "Склеено (всего меток: {0}). Соприкасающиеся склеенные блоки двигаются вместе.",
+	"glue-removed": "Клей снят (осталось меток: {0}).",
+	"glue-refused": "Этот блок склеить нельзя."
+}

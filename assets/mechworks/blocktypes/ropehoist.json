@@ -1,0 +1,40 @@
+{
+	code: "ropehoist",
+	class: "MechworksRopeHoist",
+	entityClass: "MechworksRopeHoist",
+	behaviors: [{ name: "HorizontalOrientable" }],
+	// See piston.json for why mechPartShape: null is mandatory here.
+	// "side" is only the axle socket — the load always travels vertically.
+	entityBehaviors: [{ name: "MPConsumer", properties: { resistance: 0.4, mechPartShape: null } }],
+	variantgroups: [
+		{ code: "side", loadFromProperties: "abstract/horizontalorientation" }
+	],
+	creativeinventory: { "general": ["*-north"], "mechanics": ["*-north"] },
+	drawtype: "Cube",
+	// Vanilla assets live in other domains and must name them explicitly.
+	shape: { base: "game:block/basic/cube" },
+	textures: {
+		all: { base: "survival:block/wood/debarked/pine" }
+	},
+	blockmaterial: "Wood",
+	resistance: 3.5,
+	lightAbsorption: 0,
+	maxStackSize: 8,
+	drops: [
+		{ type: "block", code: "ropehoist-north", quantity: { avg: 1 } }
+	],
+	heldTpIdleAnimation: "holdbothhandslarge",
+	heldRightReadyAnimation: "heldblockready",
+	heldTpUseAnimation: "twohandplaceblock",
+	tpHandTransform: {
+		translation: { x: -1.23, y: -0.91, z: -0.8 },
+		rotation: { x: -2, y: 25, z: -78 },
+		scale: 0.4
+	},
+	sounds: {
+		hit: "survival:block/planks",
+		break: "survival:block/planks",
+		place: "survival:block/planks",
+		walk: "survival:walk/wood"
+	}
+}
