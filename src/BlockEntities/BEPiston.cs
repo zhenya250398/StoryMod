@@ -192,7 +192,7 @@ namespace Mechworks
         int FrontBeams => extension;
 
         /// <summary>Cells the beam occupies behind the piston.</summary>
-        int BackBeams => System.Math.Max(0, beams - CounterweightBeams - extension);
+        public int BackBeams => System.Math.Max(0, beams - CounterweightBeams - extension);
 
         /// <summary>
         /// Writes the beam into the world to match the machine's own counters: as much as

@@ -5,11 +5,12 @@ using Vintagestory.API.MathTools;
 namespace Mechworks
 {
     /// <summary>
-    /// Draws the piston head: the plate on the end of the beam.
+    /// Draws the two moving ends of the piston's beam.
     ///
-    /// It is kept out of the block's static mesh (see BEPiston.OnTesselation) and put back
-    /// here with a translation, so it can ride out to the beam tip while the casing stays
-    /// put.
+    /// The beam itself is real blocks, and a rod of identical blocks sliding one cell looks
+    /// the same in the middle before and after — only its ends change. So only the ends are
+    /// animated: the head plate at the front, and a cell of beam leaving at the back. Both
+    /// are kept out of the block's static mesh (see BEPiston.OnTesselation) and drawn here.
     ///
     /// Follows Vintage Kinematics' KineticPistonRenderer (MIT, Copyright (c) 2026 garward)
     /// — see THIRD-PARTY.md.
@@ -17,10 +18,10 @@ namespace Mechworks
     public class PistonHeadRenderer : IRenderer
     {
         /// <summary>Shape elements this renderer owns. Must match piston.json.</summary>
-        public static readonly string[] MovingElements = { "head" };
+        public static readonly string[] MovingElements = { "head", "tail" };
 
-        /// <summary>How far the head travels over one stroke, in blocks.</summary>
-        const float Travel = 1f;
+        const string HeadElement = "head";
+        const string TailElement = "tail";
 
         readonly ICoreClientAPI capi;
         readonly BEPiston piston;
@@ -28,6 +29,7 @@ namespace Mechworks
         readonly Matrixf modelMat = new Matrixf();
 
         MultiTextureMeshRef headMesh;
+        MultiTextureMeshRef tailMesh;
         bool meshBuilt;
 
         public double RenderOrder => 0.5;
@@ -43,9 +45,8 @@ namespace Mechworks
         public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
         {
             if (capi.World.Player?.Entity == null) return;
-
-            if (!meshBuilt) BuildMesh();
-            if (headMesh == null) return;
+            if (!meshBuilt) BuildMeshes();
+            if (headMesh == null && tailMesh == null) return;
 
             IRenderAPI rpi = capi.Render;
             Vec3d camPos = capi.World.Player.Entity.CameraPos;
@@ -57,12 +58,45 @@ namespace Mechworks
             prog.ViewMatrix = rpi.CameraMatrixOriginf;
             prog.ProjectionMatrix = rpi.CurrentProjectionMatrix;
 
-            // The mesh is baked with the block's own shape rotation, exactly like the static
-            // body, so there is no rotation to redo here. That leaves a plain translation
-            // along the world axis the piston actually points down — far less to get wrong
-            // than rotating the offset into place.
+            float lag = Lag();
+
+            // The head is the plate on the end of the beam, so it rides at the beam tip.
+            Draw(rpi, prog, camPos, headMesh, piston.Extension + lag);
+
+            // The tail exists only while the rod is moving. Parked, it would land exactly on
+            // the real beam block in that cell and fight it for depth.
+            if (piston.Stroking)
+            {
+                Draw(rpi, prog, camPos, tailMesh, -piston.BackBeams + lag);
+            }
+
+            prog.Stop();
+        }
+
+        /// <summary>
+        /// How far this stroke still has to travel, signed along the push direction.
+        ///
+        /// Extension and the rear count are both stepped the moment a stroke begins, so the
+        /// visible ends start out lagging behind their final cells by a whole cell, back the
+        /// way the rod came, and catch up over the stroke.
+        /// </summary>
+        float Lag()
+        {
+            if (!piston.Stroking) return 0f;
+
+            float remaining = 1f - GameMath.Clamp(piston.StrokeProgress, 0f, 1f);
+            return piston.Reversed ? remaining : -remaining;
+        }
+
+        void Draw(IRenderAPI rpi, IStandardShaderProgram prog, Vec3d camPos, MultiTextureMeshRef mesh, float offset)
+        {
+            if (mesh == null) return;
+
+            // The meshes are baked with the block's own shape rotation, exactly like the
+            // static body, so there is no rotation to redo here. That leaves a plain
+            // translation along the world axis the piston points down — far less to get
+            // wrong than rotating the offset into place.
             Vec3f dir = piston.PushFacing.Normalf;
-            float offset = HeadOffset();
 
             modelMat
                 .Identity()
@@ -72,32 +106,10 @@ namespace Mechworks
                     (float)(pos.Z - camPos.Z) + dir.Z * offset);
 
             prog.ModelMatrix = modelMat.Values;
-            rpi.RenderMultiTextureMesh(headMesh, "tex");
-            prog.Stop();
+            rpi.RenderMultiTextureMesh(mesh, "tex");
         }
 
-        /// <summary>
-        /// Where the head sits right now, in blocks along the push direction.
-        ///
-        /// The head is the plate on the far end of the beam, not a face of the casing: the
-        /// force runs shaft, casing, beam, plate, load, so the plate is what actually meets
-        /// whatever is being pushed. It therefore rides at the beam tip and only slides
-        /// while a stroke is carrying it to the next cell.
-        /// </summary>
-        float HeadOffset()
-        {
-            float tip = piston.Extension;
-            if (!piston.Stroking) return tip;
-
-            // Extension was already stepped when the stroke started, so the head is still
-            // catching up: one cell behind it when extending, one ahead when drawing in.
-            float progress = GameMath.Clamp(piston.StrokeProgress, 0f, 1f);
-            float lag = (1f - progress) * Travel;
-
-            return piston.Reversed ? tip + lag : tip - lag;
-        }
-
-        void BuildMesh()
+        void BuildMeshes()
         {
             meshBuilt = true;
 
@@ -112,19 +124,26 @@ namespace Mechworks
             Shape shape = Shape.TryGet(capi, loc);
             if (shape == null) return;
 
+            headMesh = Upload(block, shape, cshape, HeadElement);
+            tailMesh = Upload(block, shape, cshape, TailElement);
+        }
+
+        MultiTextureMeshRef Upload(Block block, Shape shape, CompositeShape cshape, string element)
+        {
             capi.Tesselator.TesselateShape(
                 block, shape, out MeshData mesh,
                 new Vec3f(cshape.rotateX, cshape.rotateY, cshape.rotateZ),
-                null, MovingElements);
+                null, new[] { element });
 
-            if (mesh == null) return;
-            headMesh = capi.Render.UploadMultiTextureMesh(mesh);
+            return mesh == null ? null : capi.Render.UploadMultiTextureMesh(mesh);
         }
 
         public void Dispose()
         {
             headMesh?.Dispose();
             headMesh = null;
+            tailMesh?.Dispose();
+            tailMesh = null;
         }
     }
 }

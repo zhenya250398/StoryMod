@@ -491,6 +491,76 @@
 					]
 				}
 			}
+		},
+		{
+			"name": "tail",
+			"comment": "One cell of beam, drawn only while a stroke is running and only at the back end of the rod, so the tail slides instead of popping. A shade thinner than the real beam block it slides into, to avoid coincident faces.",
+			"from": [
+				0.0,
+				6.1,
+				6.1
+			],
+			"to": [
+				16.0,
+				9.9,
+				9.9
+			],
+			"faces": {
+				"north": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						16.0,
+						4.0
+					]
+				},
+				"east": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						4.0,
+						4.0
+					]
+				},
+				"south": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						16.0,
+						4.0
+					]
+				},
+				"west": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						4.0,
+						4.0
+					]
+				},
+				"up": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						16.0,
+						4.0
+					]
+				},
+				"down": {
+					"texture": "#beam",
+					"uv": [
+						0.0,
+						0.0,
+						16.0,
+						4.0
+					]
+				}
+			}
 		}
 	]
 }
