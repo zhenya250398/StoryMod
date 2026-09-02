@@ -16,11 +16,32 @@ namespace Mechworks
 
         readonly GlueHighlighter glueHighlighter = new GlueHighlighter();
 
+        ICoreServerAPI sapi;
+
         public override void StartServerSide(ICoreServerAPI api)
         {
             base.StartServerSide(api);
+            sapi = api;
+
             Glue.Init(api);
             glueHighlighter.Init(api, Glue);
+
+            // Beams belong to their piston. Letting players mine them out invites a whole
+            // category of half-broken machines; they come back out by unloading the piston
+            // or breaking it, and no other way.
+            api.Event.CanPlaceOrBreakBlock += CanPlaceOrBreak;
+        }
+
+        bool CanPlaceOrBreak(IServerPlayer byPlayer, BlockSelection blockSel, out string claimant)
+        {
+            claimant = null;
+            if (blockSel?.Position == null) return true;
+
+            Block block = sapi.World.BlockAccessor.GetBlock(blockSel.Position);
+            if (!BEPiston.IsPistonBeam(block)) return true;
+
+            claimant = "the piston it belongs to";
+            return false;
         }
 
         public override void Start(ICoreAPI api)

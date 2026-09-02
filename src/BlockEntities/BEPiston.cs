@@ -232,6 +232,10 @@ namespace Mechworks
         {
             if (extension <= 0) return false;       // nothing to draw back in
 
+            // Drawing in adds a cell of beam behind, so that cell has to be clear. Without
+            // this the beam simply passed through whatever had been built there.
+            if (!HasRoomBehind()) return false;
+
             BlockFacing facing = PushFacing;
             IBlockAccessor ba = Api.World.BlockAccessor;
 
