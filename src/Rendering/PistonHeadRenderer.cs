@@ -5,11 +5,11 @@ using Vintagestory.API.MathTools;
 namespace Mechworks
 {
     /// <summary>
-    /// Draws the moving parts of the piston: the head plate and the stub of beam behind it.
+    /// Draws the piston head: the plate on the end of the beam.
     ///
-    /// Those elements are kept out of the block's static mesh (see BEPiston.OnTesselation)
-    /// and put back here with a translation, so they can slide a full cell over a stroke
-    /// while the casing stays put.
+    /// It is kept out of the block's static mesh (see BEPiston.OnTesselation) and put back
+    /// here with a translation, so it can ride out to the beam tip while the casing stays
+    /// put.
     ///
     /// Follows Vintage Kinematics' KineticPistonRenderer (MIT, Copyright (c) 2026 garward)
     /// — see THIRD-PARTY.md.
@@ -17,7 +17,7 @@ namespace Mechworks
     public class PistonHeadRenderer : IRenderer
     {
         /// <summary>Shape elements this renderer owns. Must match piston.json.</summary>
-        public static readonly string[] MovingElements = { "head", "headrod" };
+        public static readonly string[] MovingElements = { "head" };
 
         /// <summary>How far the head travels over one stroke, in blocks.</summary>
         const float Travel = 1f;
@@ -77,17 +77,24 @@ namespace Mechworks
         }
 
         /// <summary>
-        /// Where the head sits right now, in blocks along the push direction. At rest it is
-        /// home; during a stroke it travels a full cell, out when extending and back when
-        /// drawing in, so it reads as the leading edge of the beam about to appear or just
-        /// gone.
+        /// Where the head sits right now, in blocks along the push direction.
+        ///
+        /// The head is the plate on the far end of the beam, not a face of the casing: the
+        /// force runs shaft, casing, beam, plate, load, so the plate is what actually meets
+        /// whatever is being pushed. It therefore rides at the beam tip and only slides
+        /// while a stroke is carrying it to the next cell.
         /// </summary>
         float HeadOffset()
         {
-            if (!piston.Stroking) return 0f;
+            float tip = piston.Extension;
+            if (!piston.Stroking) return tip;
 
+            // Extension was already stepped when the stroke started, so the head is still
+            // catching up: one cell behind it when extending, one ahead when drawing in.
             float progress = GameMath.Clamp(piston.StrokeProgress, 0f, 1f);
-            return (piston.Reversed ? 1f - progress : progress) * Travel;
+            float lag = (1f - progress) * Travel;
+
+            return piston.Reversed ? tip + lag : tip - lag;
         }
 
         void BuildMesh()
