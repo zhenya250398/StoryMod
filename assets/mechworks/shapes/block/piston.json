@@ -493,8 +493,8 @@
 			}
 		},
 		{
-			"name": "tail",
-			"comment": "One cell of beam, drawn only while a stroke is running and only at the back end of the rod, so the tail slides instead of popping. A shade thinner than the real beam block it slides into, to avoid coincident faces.",
+			"name": "beamsegment",
+			"comment": "One cell of beam, drawn only while a stroke runs, at both ends of the rod: emerging at the front and withdrawing at the back. A shade thinner than the real beam blocks it slides through, to avoid coincident faces.",
 			"from": [
 				0.0,
 				6.1,

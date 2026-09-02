@@ -5,12 +5,13 @@ using Vintagestory.API.MathTools;
 namespace Mechworks
 {
     /// <summary>
-    /// Draws the two moving ends of the piston's beam.
+    /// Draws the moving ends of the piston's beam.
     ///
     /// The beam itself is real blocks, and a rod of identical blocks sliding one cell looks
     /// the same in the middle before and after — only its ends change. So only the ends are
-    /// animated: the head plate at the front, and a cell of beam leaving at the back. Both
-    /// are kept out of the block's static mesh (see BEPiston.OnTesselation) and drawn here.
+    /// animated: the head plate, plus one cell of beam emerging at the front and another
+    /// withdrawing at the back. All are kept out of the block's static mesh (see
+    /// BEPiston.OnTesselation) and drawn here.
     ///
     /// Follows Vintage Kinematics' KineticPistonRenderer (MIT, Copyright (c) 2026 garward)
     /// — see THIRD-PARTY.md.
@@ -18,10 +19,10 @@ namespace Mechworks
     public class PistonHeadRenderer : IRenderer
     {
         /// <summary>Shape elements this renderer owns. Must match piston.json.</summary>
-        public static readonly string[] MovingElements = { "head", "tail" };
+        public static readonly string[] MovingElements = { "head", "beamsegment" };
 
         const string HeadElement = "head";
-        const string TailElement = "tail";
+        const string SegmentElement = "beamsegment";
 
         readonly ICoreClientAPI capi;
         readonly BEPiston piston;
@@ -29,7 +30,7 @@ namespace Mechworks
         readonly Matrixf modelMat = new Matrixf();
 
         MultiTextureMeshRef headMesh;
-        MultiTextureMeshRef tailMesh;
+        MultiTextureMeshRef segmentMesh;
         bool meshBuilt;
 
         public double RenderOrder => 0.5;
@@ -46,7 +47,7 @@ namespace Mechworks
         {
             if (capi.World.Player?.Entity == null) return;
             if (!meshBuilt) BuildMeshes();
-            if (headMesh == null && tailMesh == null) return;
+            if (headMesh == null && segmentMesh == null) return;
 
             IRenderAPI rpi = capi.Render;
             Vec3d camPos = capi.World.Player.Entity.CameraPos;
@@ -63,11 +64,15 @@ namespace Mechworks
             // The head is the plate on the end of the beam, so it rides at the beam tip.
             Draw(rpi, prog, camPos, headMesh, piston.Extension + lag);
 
-            // The tail exists only while the rod is moving. Parked, it would land exactly on
-            // the real beam block in that cell and fight it for depth.
+            // Both ends of the rod are in motion during a stroke, and the middle is
+            // indistinguishable either way. The leading segment emerges from behind the
+            // head; the trailing one withdraws into the machine. Same mesh, same lag, two
+            // ends. They are drawn only while moving: parked, each would land exactly on a
+            // real beam block and fight it for depth.
             if (piston.Stroking)
             {
-                Draw(rpi, prog, camPos, tailMesh, -piston.BackBeams + lag);
+                Draw(rpi, prog, camPos, segmentMesh, piston.Extension + lag);
+                Draw(rpi, prog, camPos, segmentMesh, -piston.BackBeams + lag);
             }
 
             prog.Stop();
@@ -125,7 +130,7 @@ namespace Mechworks
             if (shape == null) return;
 
             headMesh = Upload(block, shape, cshape, HeadElement);
-            tailMesh = Upload(block, shape, cshape, TailElement);
+            segmentMesh = Upload(block, shape, cshape, SegmentElement);
         }
 
         MultiTextureMeshRef Upload(Block block, Shape shape, CompositeShape cshape, string element)
@@ -142,8 +147,8 @@ namespace Mechworks
         {
             headMesh?.Dispose();
             headMesh = null;
-            tailMesh?.Dispose();
-            tailMesh = null;
+            segmentMesh?.Dispose();
+            segmentMesh = null;
         }
     }
 }
