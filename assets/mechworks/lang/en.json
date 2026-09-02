@@ -20,5 +20,6 @@
 	"block-pistonbeam-north": "Piston Beam",
 	"block-pistonbeam-east": "Piston Beam",
 	"block-pistonbeam-south": "Piston Beam",
-	"block-pistonbeam-west": "Piston Beam"
+	"block-pistonbeam-west": "Piston Beam",
+	"block-turntable": "Turntable"
 }

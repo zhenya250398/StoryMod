@@ -1,0 +1,50 @@
+{
+	"comment": "Turns about the vertical axis, so the model is symmetric and needs no variant.",
+	"textureWidth": 16,
+	"textureHeight": 16,
+	"textures": {
+		"wood": "game:block/wood/planks/generic",
+		"metal": "game:block/metal/plate/iron"
+	},
+	"elements": [
+		{
+			"name": "deck",
+			"from": [ 0.0, 10.0, 0.0 ],
+			"to": [ 16.0, 16.0, 16.0 ],
+			"faces": {
+				"north": { "texture": "#wood", "uv": [ 0.0, 0.0, 16.0, 6.0 ] },
+				"east":  { "texture": "#wood", "uv": [ 0.0, 0.0, 16.0, 6.0 ] },
+				"south": { "texture": "#wood", "uv": [ 0.0, 0.0, 16.0, 6.0 ] },
+				"west":  { "texture": "#wood", "uv": [ 0.0, 0.0, 16.0, 6.0 ] },
+				"up":    { "texture": "#wood", "uv": [ 0.0, 0.0, 16.0, 16.0 ] },
+				"down":  { "texture": "#wood", "uv": [ 0.0, 0.0, 16.0, 16.0 ] }
+			}
+		},
+		{
+			"name": "ring",
+			"from": [ 2.0, 6.0, 2.0 ],
+			"to": [ 14.0, 10.0, 14.0 ],
+			"faces": {
+				"north": { "texture": "#metal", "uv": [ 0.0, 0.0, 12.0, 4.0 ] },
+				"east":  { "texture": "#metal", "uv": [ 0.0, 0.0, 12.0, 4.0 ] },
+				"south": { "texture": "#metal", "uv": [ 0.0, 0.0, 12.0, 4.0 ] },
+				"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 12.0, 4.0 ] },
+				"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 12.0, 12.0 ] },
+				"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 12.0, 12.0 ] }
+			}
+		},
+		{
+			"name": "hub",
+			"from": [ 5.0, 0.0, 5.0 ],
+			"to": [ 11.0, 6.0, 11.0 ],
+			"faces": {
+				"north": { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
+				"east":  { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
+				"south": { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
+				"west":  { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
+				"up":    { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] },
+				"down":  { "texture": "#metal", "uv": [ 0.0, 0.0, 6.0, 6.0 ] }
+			}
+		}
+	]
+}

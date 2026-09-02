@@ -55,6 +55,9 @@ namespace Mechworks
             api.RegisterBlockClass("MechworksRopeHoist", typeof(BlockRopeHoist));
             api.RegisterBlockEntityClass("MechworksRopeHoist", typeof(BERopeHoist));
 
+            api.RegisterBlockClass("MechworksTurntable", typeof(BlockTurntable));
+            api.RegisterBlockEntityClass("MechworksTurntable", typeof(BETurntable));
+
             api.RegisterItemClass("MechworksGlue", typeof(ItemGlue));
 
             api.RegisterEntity("MechworksMovingBlocks", typeof(EntityMovingBlocks));

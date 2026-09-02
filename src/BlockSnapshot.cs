@@ -71,10 +71,10 @@ namespace Mechworks
         }
 
         /// <summary>
-        /// Writes every block back, positioned relative to <paramref name="origin"/>.
-        /// Assumes the target cells were already checked to be free.
+        /// Writes every block back, positioned relative to <paramref name="origin"/> and
+        /// optionally turned about it. Assumes the target cells were already checked free.
         /// </summary>
-        public void RestoreToWorld(IWorldAccessor world, BlockPos origin)
+        public void RestoreToWorld(IWorldAccessor world, BlockPos origin, int angleDeg = 0)
         {
             IBlockAccessor ba = world.BlockAccessor;
 
@@ -83,11 +83,49 @@ namespace Mechworks
                 Block block = world.GetBlock(new AssetLocation(BlockCodes[i]));
                 if (block == null || block.Id == 0) continue;
 
-                BlockPos pos = WorldPos(origin, Offsets[i]);
+                block = Turned(world, block, angleDeg);
+                if (block == null || block.Id == 0) continue;
+
+                BlockPos pos = WorldPos(origin, Rotate(Offsets[i], angleDeg));
                 ba.SetBlock(block.Id, pos);
                 RestoreBlockEntity(world, pos, Trees[i]);
                 ba.MarkBlockDirty(pos);
             }
+        }
+
+        /// <summary>
+        /// Turns an offset about the vertical axis. Paired with <see cref="Turned"/>: both
+        /// must agree or a turned structure ends up with its blocks facing the wrong way.
+        ///
+        /// The sense comes from vanilla. BlockBehaviorHorizontalOrientable rotates a code by
+        /// stepping back through HORIZONTALS_ANGLEORDER (E, N, W, S), so 90 degrees maps
+        /// north to east — clockwise seen from above. In world axes, where north is -Z and
+        /// east is +X, that is (x, z) -> (-z, x).
+        /// </summary>
+        public static Vec3i Rotate(Vec3i offset, int angleDeg)
+        {
+            switch (GameMath.Mod(angleDeg, 360))
+            {
+                case 90: return new Vec3i(-offset.Z, offset.Y, offset.X);
+                case 180: return new Vec3i(-offset.X, offset.Y, -offset.Z);
+                case 270: return new Vec3i(offset.Z, offset.Y, -offset.X);
+                default: return offset.Clone();
+            }
+        }
+
+        /// <summary>
+        /// The same block turned to match. Blocks with no notion of facing return
+        /// themselves; a few return a code that no longer resolves, and those are dropped
+        /// rather than silently placed unturned.
+        /// </summary>
+        static Block Turned(IWorldAccessor world, Block block, int angleDeg)
+        {
+            if (GameMath.Mod(angleDeg, 360) == 0) return block;
+
+            AssetLocation code = block.GetRotatedBlockCode(angleDeg);
+            if (code == null || code.Equals(block.Code)) return block;
+
+            return world.GetBlock(code) ?? block;
         }
 
         /// <summary>

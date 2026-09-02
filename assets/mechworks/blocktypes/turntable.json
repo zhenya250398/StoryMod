@@ -1,0 +1,28 @@
+{
+	code: "turntable",
+	class: "MechworksTurntable",
+	entityClass: "MechworksTurntable",
+	// Vanilla mechanical power hookup. mechPartShape: null is mandatory — see piston.json.
+	entityBehaviors: [{ name: "MPConsumer", properties: { resistance: 0.5, mechPartShape: null } }],
+	creativeinventory: { "general": ["*"], "mechanics": ["*"] },
+	drawtype: "json",
+	// Vanilla assets all live under the "game" domain whatever folder they sit in.
+	shape: { base: "block/turntable" },
+	textures: {
+		wood: { base: "game:block/wood/planks/generic" },
+		metal: { base: "game:block/metal/plate/iron" }
+	},
+	blockmaterial: "Wood",
+	resistance: 3.5,
+	lightAbsorption: 0,
+	maxStackSize: 8,
+	sideOpaque: { all: false },
+	sidesolid: { all: false },
+	collisionSelectionBox: { x1: 0, y1: 0, z1: 0, x2: 1, y2: 1, z2: 1 },
+	sounds: {
+		hit: "game:block/planks",
+		break: "game:block/planks",
+		place: "game:block/planks",
+		walk: "game:walk/wood"
+	}
+}
