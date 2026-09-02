@@ -2,7 +2,7 @@
 	"textureWidth": 16,
 	"textureHeight": 16,
 	"textures": {
-		"wood": "survival:block/wood/debarked/oak"
+		"wood": "game:block/wood/debarked/oak"
 	},
 	"elements": [
 		{

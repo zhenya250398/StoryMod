@@ -17,12 +17,13 @@
 	],
 	creativeinventory: { "general": ["*-north"], "mechanics": ["*-north"] },
 	drawtype: "Cube",
-	// Asset paths resolve against THIS file's domain (mechworks), so every vanilla
-	// asset has to name its own domain explicitly: shapes live in game, textures and
-	// sounds in survival. Unqualified paths silently resolve to mechworks:... and fail.
+	// Asset paths resolve against THIS file's domain (mechworks), so vanilla assets must
+	// name theirs. That domain is "game" for all of them: the base game keeps assets in
+	// game/, survival/ and creative/ folders, but registers the lot under one domain.
+	// Unqualified paths silently resolve to mechworks:... and render white.
 	shape: { base: "game:block/basic/cube" },
 	textures: {
-		all: { base: "survival:block/wood/planks/generic" }
+		all: { base: "game:block/wood/planks/generic" }
 	},
 	blockmaterial: "Wood",
 	resistance: 3.5,
@@ -41,9 +42,9 @@
 		scale: 0.4
 	},
 	sounds: {
-		hit: "survival:block/planks",
-		break: "survival:block/planks",
-		place: "survival:block/planks",
-		walk: "survival:walk/wood"
+		hit: "game:block/planks",
+		break: "game:block/planks",
+		place: "game:block/planks",
+		walk: "game:walk/wood"
 	}
 }

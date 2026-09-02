@@ -1,10 +1,10 @@
 {
 	code: "glue",
 	class: "MechworksGlue",
-	// Reusing vanilla beeswax art. Asset paths resolve against this file's domain,
-	// so the survival domain has to be named explicitly.
-	shape: { base: "survival:item/resource/beeswax" },
-	texture: { base: "survival:item/resource/beeswax" },
+	// Reusing vanilla beeswax art. Vanilla assets live under the "game" domain whatever
+	// folder they sit in, and must say so or they resolve against mechworks and fail.
+	shape: { base: "game:item/resource/beeswax" },
+	texture: { base: "game:item/resource/beeswax" },
 	creativeinventory: { "general": ["*"], "items": ["*"], "mechanics": ["*"] },
 	maxstacksize: 1,
 	guiTransform: {

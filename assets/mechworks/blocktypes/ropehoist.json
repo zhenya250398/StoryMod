@@ -11,10 +11,10 @@
 	],
 	creativeinventory: { "general": ["*-north"], "mechanics": ["*-north"] },
 	drawtype: "Cube",
-	// Vanilla assets live in other domains and must name them explicitly.
+	// Vanilla assets all live under the "game" domain and must name it explicitly.
 	shape: { base: "game:block/basic/cube" },
 	textures: {
-		all: { base: "survival:block/wood/debarked/pine" }
+		all: { base: "game:block/wood/debarked/pine" }
 	},
 	blockmaterial: "Wood",
 	resistance: 3.5,
@@ -32,9 +32,9 @@
 		scale: 0.4
 	},
 	sounds: {
-		hit: "survival:block/planks",
-		break: "survival:block/planks",
-		place: "survival:block/planks",
-		walk: "survival:walk/wood"
+		hit: "game:block/planks",
+		break: "game:block/planks",
+		place: "game:block/planks",
+		walk: "game:walk/wood"
 	}
 }
