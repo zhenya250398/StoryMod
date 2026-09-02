@@ -208,16 +208,22 @@ namespace Mechworks
         public int BackBeams => System.Math.Max(0, beams - CounterweightBeams - extension);
 
         /// <summary>
-        /// Holds the world beam back until the stroke has finished travelling.
+        /// Moves the world beam in step with the stroke it is drawing.
         ///
-        /// Writing it immediately made the beam jump a whole cell at the start of a stroke
-        /// while the drawn segment was still sliding towards it — the block teleported and
-        /// its own animation chased it. The counters step at once, which is what the
-        /// renderer interpolates from; only the blocks wait.
+        /// The two ends want opposite timing. A cell the rod is moving into must stay empty
+        /// until it arrives, or the block teleports ahead of its own animation. A cell the
+        /// rod is leaving must empty at once, or the block sits there unmoved and vanishes
+        /// at the end. So: clear now, place on arrival.
+        ///
+        /// The counters step immediately either way — the renderer interpolates from them.
         /// </summary>
-        void SyncBeamBlocksWhenStrokeLands()
+        void SyncBeamBlocksForStroke()
         {
             if (Api?.Side != EnumAppSide.Server) return;
+
+            // Cells the rod has left are freed at once; cells it is moving into are filled
+            // only when it gets there.
+            SyncBeamBlocks(place: false, clear: true);
 
             if (pendingBeamSync >= 0) UnregisterDelayedCallback(pendingBeamSync);
             pendingBeamSync = RegisterDelayedCallback(_ =>
@@ -233,7 +239,7 @@ namespace Mechworks
         /// else. Driving it from state rather than patching cells one at a time means a
         /// beam block broken by a player simply comes back on the next stroke.
         /// </summary>
-        void SyncBeamBlocks()
+        void SyncBeamBlocks(bool place = true, bool clear = true)
         {
             if (Api?.Side != EnumAppSide.Server) return;
 
@@ -247,14 +253,15 @@ namespace Mechworks
 
             for (int i = 1; i <= MaxBeams; i++)
             {
-                SetBeamCell(ba, beam, Pos.AddCopy(facing, i), i <= front);
-                SetBeamCell(ba, beam, Pos.AddCopy(facing.Opposite, i), i <= back);
+                SetBeamCell(ba, beam, Pos.AddCopy(facing, i), i <= front, place, clear);
+                SetBeamCell(ba, beam, Pos.AddCopy(facing.Opposite, i), i <= back, place, clear);
             }
         }
 
-        void SetBeamCell(IBlockAccessor ba, Block beam, BlockPos at, bool wanted)
+        void SetBeamCell(IBlockAccessor ba, Block beam, BlockPos at, bool wanted, bool place = true, bool clear = true)
         {
             if (ba.GetChunkAtBlockPos(at) == null) return;
+            if (wanted ? !place : !clear) return;
 
             Block current = ba.GetBlock(at);
             bool isBeam = IsPistonBeam(current);
@@ -310,7 +317,7 @@ namespace Mechworks
             }
 
             extension++;
-            SyncBeamBlocksWhenStrokeLands();
+            SyncBeamBlocksForStroke();
             MarkDirty(true);
             return true;
         }
@@ -328,7 +335,7 @@ namespace Mechworks
 
             // The beam gives up its outermost cell first, otherwise the load it is dragging
             // back has nowhere to land — the beam itself would be standing in the way.
-            SetBeamCell(ba, null, BeamTip, false);
+            SetBeamCell(ba, null, BeamTip, wanted: false);
 
             List<BlockPos> chain = CollectPullChain(ba, facing);
 
@@ -345,7 +352,7 @@ namespace Mechworks
             }
 
             extension--;
-            SyncBeamBlocksWhenStrokeLands();
+            SyncBeamBlocksForStroke();
             MarkDirty(true);
             return true;
         }
