@@ -91,6 +91,13 @@ namespace Mechworks
             MarkDirty(true);
         }
 
+        /// <summary>True while a stroke is in the air.</summary>
+        public bool Stroking => movingUntil > 0f;
+
+        /// <summary>How far through the current stroke, 0 at the start and 1 at the end.</summary>
+        public float StrokeProgress =>
+            movingUntil <= 0f ? 0f : 1f - (movingUntil / MoveDurationSec);
+
         /// <summary>Seconds until the next stroke at the current speed, 0 when unpowered.</summary>
         public float SecondsToNextStroke
         {

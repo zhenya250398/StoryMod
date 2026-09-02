@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
@@ -117,6 +118,8 @@ namespace Mechworks
             return taken;
         }
 
+        PistonHeadRenderer headRenderer;
+
         public override void Initialize(ICoreAPI api)
         {
             base.Initialize(api);
@@ -124,10 +127,61 @@ namespace Mechworks
             // Chunks can come back with the beam cells missing or stale; the machine's own
             // counters are the truth, so restate them in the world.
             SyncBeamBlocks();
+
+            if (api is ICoreClientAPI capi)
+            {
+                headRenderer = new PistonHeadRenderer(capi, this);
+                capi.Event.RegisterRenderer(headRenderer, EnumRenderStage.Opaque, "mechworks:pistonhead");
+            }
+        }
+
+        /// <summary>
+        /// Draws everything except the head; the head is drawn by PistonHeadRenderer so it
+        /// can slide. Leaving it in here as well would render it twice, once stuck at rest.
+        /// </summary>
+        public override bool OnTesselation(ITerrainMeshPool mesher, ITesselatorAPI tessThreadTesselator)
+        {
+            if (Api is not ICoreClientAPI capi || Block?.Shape?.Base == null) return false;
+
+            AssetLocation loc = Block.Shape.Base.Clone()
+                .WithPathPrefixOnce("shapes/")
+                .WithPathAppendixOnce(".json");
+
+            Shape shape = Shape.TryGet(capi, loc);
+            if (shape == null) return false;
+
+            Shape body = shape.Clone();
+            body.RemoveElements(new[] { PistonHeadRenderer.HeadElement });
+
+            CompositeShape cshape = Block.Shape;
+            tessThreadTesselator.TesselateShape(
+                Block, body, out MeshData mesh,
+                new Vec3f(cshape.rotateX, cshape.rotateY, cshape.rotateZ));
+
+            if (mesh == null) return false;
+            mesher.AddMeshData(mesh);
+            return true;
+        }
+
+        void DisposeRenderer()
+        {
+            if (headRenderer == null || Api is not ICoreClientAPI capi) return;
+
+            capi.Event.UnregisterRenderer(headRenderer, EnumRenderStage.Opaque);
+            headRenderer.Dispose();
+            headRenderer = null;
+        }
+
+        public override void OnBlockUnloaded()
+        {
+            DisposeRenderer();
+            base.OnBlockUnloaded();
         }
 
         public override void OnBlockRemoved()
         {
+            DisposeRenderer();
+
             beams = 0;
             extension = 0;
             SyncBeamBlocks();

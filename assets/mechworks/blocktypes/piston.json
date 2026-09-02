@@ -16,15 +16,25 @@
 		{ code: "side", loadFromProperties: "abstract/horizontalorientation" }
 	],
 	creativeinventory: { "general": ["*-north"], "mechanics": ["*-north"] },
-	drawtype: "Cube",
+	drawtype: "json",
 	// Asset paths resolve against THIS file's domain (mechworks), so vanilla assets must
 	// name theirs. That domain is "game" for all of them: the base game keeps assets in
 	// game/, survival/ and creative/ folders, but registers the lot under one domain.
 	// Unqualified paths silently resolve to mechworks:... and render white.
-	shape: { base: "game:block/basic/cube" },
-	textures: {
-		all: { base: "game:block/wood/planks/generic" }
+	// The shape is modelled facing east; rotateY turns it to the variant's side.
+	shapebytype: {
+		"*-east":  { base: "block/piston", rotateY: 0 },
+		"*-south": { base: "block/piston", rotateY: 90 },
+		"*-west":  { base: "block/piston", rotateY: 180 },
+		"*-north": { base: "block/piston", rotateY: 270 }
 	},
+	textures: {
+		wood: { base: "game:block/wood/planks/generic" },
+		metal: { base: "game:block/metal/plate/iron" },
+		beam: { base: "game:block/wood/debarked/oak" }
+	},
+	sideOpaque: { all: false },
+	sidesolid: { all: false },
 	blockmaterial: "Wood",
 	resistance: 3.5,
 	lightAbsorption: 0,
