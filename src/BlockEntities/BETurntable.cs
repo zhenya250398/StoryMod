@@ -22,8 +22,22 @@ namespace Mechworks
 
         protected override string StrokeNoun => "turn";
 
-        /// <summary>Which way a stroke turns, as an angle vanilla understands.</summary>
-        int TurnAngle => Reversed ? 270 : 90;
+        /// <summary>
+        /// A third of a shaft turn per quarter turn of the deck. Empirical: it is what
+        /// looks right against the visibly spinning shaft. The base class calls the unit
+        /// "revolutions", but the network's speed is not in revolutions per second, so the
+        /// number is a ratio that had to be matched by eye rather than derived.
+        /// </summary>
+        public override float RevolutionsPerStroke => 1f / 3f;
+
+        /// <summary>
+        /// Which way a stroke turns, as an angle vanilla understands.
+        ///
+        /// Which rotation sense maps to which angle is not derivable — it depends on the
+        /// shaft convention meeting the block-code convention — so this pairing was settled
+        /// by watching the shaft and the deck turn together.
+        /// </summary>
+        int TurnAngle => Reversed ? 90 : 270;
 
         protected override bool TryMove()
         {
