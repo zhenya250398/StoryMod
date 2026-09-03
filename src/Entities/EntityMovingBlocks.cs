@@ -225,6 +225,35 @@ namespace Mechworks
 
         // --- riding ---
 
+        /// <summary>
+        /// Brings a rider's view round with the platform, or they end the turn facing the
+        /// way they started while the world has moved under them.
+        ///
+        /// The angle and its sign follow from the position swing: yaw shares the angular
+        /// convention of HORIZONTALS_ANGLEORDER, where a heading is (cos t, -sin t), and
+        /// TurnAbout by +d takes heading t to t + d.
+        ///
+        /// Where it is applied does not follow, though. The local player's camera runs off
+        /// accumulated mouse yaw, and Pos.Yaw is written from that every frame — so
+        /// nudging Pos.Yaw is silently discarded. Same shape of problem as position:
+        /// your own player and someone else's entity have different handles.
+        ///
+        /// Added rather than assigned either way, so it composes with the player's own
+        /// mouse movement instead of fighting it.
+        /// </summary>
+        void SwingView(Entity rider, float degrees)
+        {
+            float rad = degrees * GameMath.DEG2RAD;
+
+            if (Api is ICoreClientAPI capi && rider == capi.World.Player?.Entity)
+            {
+                capi.Input.MouseYaw += rad;
+                return;
+            }
+
+            rider.Pos.Yaw += rad;
+        }
+
         /// <summary>Middle of the cell the load turns about.</summary>
         Vec3d PivotCentre => new Vec3d(SourceOrigin.X + 0.5, 0, SourceOrigin.Z + 0.5);
 
@@ -448,17 +477,7 @@ namespace Mechworks
                     rider.Pos.X = swung.X;
                     rider.Pos.Z = swung.Z;
 
-                    // The view comes round with the platform, or a rider ends the turn
-                    // facing the way they started while the world has moved under them.
-                    //
-                    // Same angle and same sign as the position: yaw shares the angular
-                    // convention of HORIZONTALS_ANGLEORDER, where a heading is
-                    // (cos t, -sin t), and TurnAbout by +d takes heading t to t + d.
-                    //
-                    // Added rather than assigned, so on the client this composes with the
-                    // player's own mouse movement instead of fighting it — which is also
-                    // why only the side that owns an entity touches it. See CanCarry.
-                    rider.Pos.Yaw += swing * GameMath.DEG2RAD;
+                    SwingView(rider, swing);
                 }
 
                 riderTurned[rider.EntityId] = turnedNow;
