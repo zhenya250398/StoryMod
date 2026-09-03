@@ -442,9 +442,23 @@ namespace Mechworks
                 float turnedNow = TurnedDegrees;
                 if (riderTurned.TryGetValue(rider.EntityId, out float turnedBefore))
                 {
-                    Vec3d swung = TurnAbout(rider.Pos.XYZ, -(turnedNow - turnedBefore));
+                    float swing = -(turnedNow - turnedBefore);
+
+                    Vec3d swung = TurnAbout(rider.Pos.XYZ, swing);
                     rider.Pos.X = swung.X;
                     rider.Pos.Z = swung.Z;
+
+                    // The view comes round with the platform, or a rider ends the turn
+                    // facing the way they started while the world has moved under them.
+                    //
+                    // Same angle and same sign as the position: yaw shares the angular
+                    // convention of HORIZONTALS_ANGLEORDER, where a heading is
+                    // (cos t, -sin t), and TurnAbout by +d takes heading t to t + d.
+                    //
+                    // Added rather than assigned, so on the client this composes with the
+                    // player's own mouse movement instead of fighting it — which is also
+                    // why only the side that owns an entity touches it. See CanCarry.
+                    rider.Pos.Yaw += swing * GameMath.DEG2RAD;
                 }
 
                 riderTurned[rider.EntityId] = turnedNow;
