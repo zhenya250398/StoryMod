@@ -43,7 +43,7 @@ namespace Mechworks
         /// Temporary: reports which way a turn actually went, because the pairing between
         /// the shaft's rotation sense and the angle vanilla wants cannot be reasoned out.
         /// </summary>
-        static readonly bool DebugTurn = true;
+        static readonly bool DebugTurn = false;
 
         void LogTurn(List<BlockPos> group, int angle)
         {
