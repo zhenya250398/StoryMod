@@ -105,8 +105,18 @@ namespace Mechworks
         /// </summary>
         public int TurnDegrees { get; private set; }
 
-        /// <summary>How far round the turn is right now.</summary>
-        public float TurnedDegrees => TurnDegrees * Progress;
+        /// <summary>
+        /// The shortest sweep that ends on the same orientation: 270 becomes -90.
+        ///
+        /// Placement and animation want different numbers from the same turn. Rotate and
+        /// GetRotatedBlockCode need the angle as given, because that is the convention
+        /// they share. Sweeping it literally sends the load three quarters of the way
+        /// round to reach a place a quarter turn away.
+        /// </summary>
+        int SweepDegrees => GameMath.Mod(TurnDegrees + 180, 360) - 180;
+
+        /// <summary>How far round the sweep is right now.</summary>
+        public float TurnedDegrees => SweepDegrees * Progress;
 
         /// <summary>False until the snapshot and both origins are known on this side.</summary>
         public bool Configured => Snapshot != null && SourceOrigin != null && DestOrigin != null;
