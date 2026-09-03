@@ -7,7 +7,11 @@
 	creativeinventory: { "general": ["*"], "mechanics": ["*"] },
 	drawtype: "json",
 	// Vanilla assets all live under the "game" domain whatever folder they sit in.
-	shape: { base: "block/turntable" },
+	// Referenced the same way as piston.json and pistonbeam.json, the two custom-model
+	// blocks that render correctly. Plain "shape" was the one untried combination.
+	shapebytype: {
+		"*": { base: "block/turntable" }
+	},
 	textures: {
 		wood: { base: "game:block/wood/planks/generic" },
 		metal: { base: "game:block/metal/plate/iron" }
@@ -18,10 +22,6 @@
 	maxStackSize: 8,
 	sideOpaque: { all: false },
 	sidesolid: { all: false },
-	// The deck runs the full width of the cell, so its side faces sit exactly on the
-	// boundary and get culled like a full cube's would — leaving the block see-through.
-	faceCullMode: "NeverCull",
-	collisionSelectionBox: { x1: 0, y1: 0, z1: 0, x2: 1, y2: 1, z2: 1 },
 	sounds: {
 		hit: "game:block/planks",
 		break: "game:block/planks",

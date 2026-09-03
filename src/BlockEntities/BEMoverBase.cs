@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Common.Entities;
 using Vintagestory.API.Datastructures;
@@ -198,6 +199,54 @@ namespace Mechworks
             Api.Logger.Notification(
                 "[mechworks] rot {0} pos={1} netId={2} netSpeed={3:0.#####} geared={4:0.###} local={5:0.#####} turnDir={6}",
                 moment, Pos, mpConsumer.NetworkId, net.Speed, geared, local, net.TurnDir);
+        }
+
+        /// <summary>
+        /// Draws the block, which nothing else will.
+        ///
+        /// BEBehaviorMPConsumer.OnTesselation returns true without adding a mesh — it is
+        /// claiming the block is rendered by the mechanical network's own renderer, which
+        /// is true for vanilla machines. We opt out of that renderer with
+        /// mechPartShape: null, so without this the block is simply never drawn: solid,
+        /// selectable, invisible.
+        /// </summary>
+        public override bool OnTesselation(ITerrainMeshPool mesher, ITesselatorAPI tessThreadTesselator)
+        {
+            return TesselateSelf(mesher, tessThreadTesselator, null);
+        }
+
+        /// <summary>
+        /// Builds this block's own mesh from its shape, optionally leaving out elements a
+        /// renderer draws separately. Returns false when there is nothing to draw, which
+        /// lets the normal block rendering have its turn.
+        /// </summary>
+        protected bool TesselateSelf(ITerrainMeshPool mesher, ITesselatorAPI tess, string[] excludedElements)
+        {
+            if (Api is not ICoreClientAPI capi) return false;
+
+            CompositeShape cshape = Block?.Shape;
+            if (cshape?.Base == null) return false;
+
+            AssetLocation loc = cshape.Base.Clone()
+                .WithPathPrefixOnce("shapes/")
+                .WithPathAppendixOnce(".json");
+
+            Shape shape = Shape.TryGet(capi, loc);
+            if (shape == null) return false;
+
+            if (excludedElements != null && excludedElements.Length > 0)
+            {
+                shape = shape.Clone();
+                shape.RemoveElements(excludedElements);
+            }
+
+            tess.TesselateShape(Block, shape, out MeshData mesh,
+                new Vec3f(cshape.rotateX, cshape.rotateY, cshape.rotateZ));
+
+            if (mesh == null) return false;
+
+            mesher.AddMeshData(mesh);
+            return true;
         }
 
         /// <summary>Largest group one stroke may move, glue included.</summary>

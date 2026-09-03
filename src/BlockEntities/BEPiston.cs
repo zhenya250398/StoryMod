@@ -139,31 +139,13 @@ namespace Mechworks
         }
 
         /// <summary>
-        /// Draws everything except the head; the head is drawn by PistonHeadRenderer so it
-        /// can slide. Leaving it in here as well would render it twice, once stuck at rest.
+        /// Draws everything except the moving parts; those are drawn by
+        /// PistonHeadRenderer so they can slide. Leaving them in here as well would render
+        /// them twice, once stuck at rest.
         /// </summary>
         public override bool OnTesselation(ITerrainMeshPool mesher, ITesselatorAPI tessThreadTesselator)
         {
-            if (Api is not ICoreClientAPI capi || Block?.Shape?.Base == null) return false;
-
-            AssetLocation loc = Block.Shape.Base.Clone()
-                .WithPathPrefixOnce("shapes/")
-                .WithPathAppendixOnce(".json");
-
-            Shape shape = Shape.TryGet(capi, loc);
-            if (shape == null) return false;
-
-            Shape body = shape.Clone();
-            body.RemoveElements(PistonHeadRenderer.MovingElements);
-
-            CompositeShape cshape = Block.Shape;
-            tessThreadTesselator.TesselateShape(
-                Block, body, out MeshData mesh,
-                new Vec3f(cshape.rotateX, cshape.rotateY, cshape.rotateZ));
-
-            if (mesh == null) return false;
-            mesher.AddMeshData(mesh);
-            return true;
+            return TesselateSelf(mesher, tessThreadTesselator, PistonHeadRenderer.MovingElements);
         }
 
         void CancelPendingBeamSync()

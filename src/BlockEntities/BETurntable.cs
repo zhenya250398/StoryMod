@@ -39,6 +39,23 @@ namespace Mechworks
         /// </summary>
         int TurnAngle => Reversed ? 90 : 270;
 
+        /// <summary>
+        /// Temporary: reports which way a turn actually went, because the pairing between
+        /// the shaft's rotation sense and the angle vanilla wants cannot be reasoned out.
+        /// </summary>
+        static readonly bool DebugTurn = true;
+
+        void LogTurn(List<BlockPos> group, int angle)
+        {
+            BlockPos from = group[0];
+            Vec3i offset = new Vec3i(from.X - Pos.X, from.InternalY - Pos.InternalY, from.Z - Pos.Z);
+            BlockPos to = BlockSnapshot.WorldPos(Pos, BlockSnapshot.Rotate(offset, angle));
+
+            Api.Logger.Notification(
+                "[mechworks] turn pos={0} reversed={1} angle={2} first {3} -> {4} (offset {5} -> {6})",
+                Pos, Reversed, angle, from, to, offset, BlockSnapshot.Rotate(offset, angle));
+        }
+
         protected override bool TryMove()
         {
             IBlockAccessor ba = Api.World.BlockAccessor;
@@ -61,6 +78,8 @@ namespace Mechworks
                     if (snapshot.Glued[i]) glue.Remove(group[i]);
                 }
             }
+
+            if (DebugTurn) LogTurn(group, angle);
 
             snapshot.ClearFromWorld(ba, Pos);
             snapshot.RestoreToWorld(Api.World, Pos, angle);
