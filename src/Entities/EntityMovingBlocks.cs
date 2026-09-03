@@ -127,6 +127,7 @@ namespace Mechworks
 
         RiderMemory riderMemory;
         readonly Dictionary<long, Vec3d> riderCarrierPos = new Dictionary<long, Vec3d>();
+        readonly Dictionary<long, float> riderTurned = new Dictionary<long, float>();
         readonly Dictionary<long, System.Action> hooks = new Dictionary<long, System.Action>();
         readonly Dictionary<long, Entity> hooked = new Dictionary<long, Entity>();
         readonly HashSet<long> seenThisTick = new HashSet<long>();
@@ -179,10 +180,7 @@ namespace Mechworks
                 // Hook riders right now, not on the first tick. The blocks were already
                 // taken out of the grid before this entity existed, so any physics that
                 // runs before the first tick does so with no floor under the rider.
-                // Carrying and shoving assume a straight slide: the delta applied to a rider is
-            // the one the blocks travel, and the support boxes are axis-aligned. Neither
-            // holds while turning, so a turning load carries nobody for now.
-            if (TurnDegrees == 0) UpdateRiderHooks();
+                UpdateRiderHooks();
             }
 
             if (api is ICoreClientAPI capi && Snapshot != null)
@@ -226,6 +224,37 @@ namespace Mechworks
         }
 
         // --- riding ---
+
+        /// <summary>Middle of the cell the load turns about.</summary>
+        Vec3d PivotCentre => new Vec3d(SourceOrigin.X + 0.5, 0, SourceOrigin.Z + 0.5);
+
+        /// <summary>
+        /// Turns a point about the pivot. Positive follows the standard rotation about Y,
+        /// where 90 degrees sends (x, z) to (z, -x).
+        /// </summary>
+        Vec3d TurnAbout(Vec3d p, float degrees)
+        {
+            if (degrees == 0f) return p.Clone();
+
+            Vec3d c = PivotCentre;
+            double rad = degrees * GameMath.DEG2RAD;
+            double cos = System.Math.Cos(rad), sin = System.Math.Sin(rad);
+            double dx = p.X - c.X, dz = p.Z - c.Z;
+
+            return new Vec3d(c.X + dx * cos + dz * sin, p.Y, c.Z - dx * sin + dz * cos);
+        }
+
+        /// <summary>
+        /// A world point expressed in the load's own unturned frame.
+        ///
+        /// This is what lets a turning load reuse every support test unchanged. Turning the
+        /// blocks' boxes would stop them being axis-aligned; turning the rider back into
+        /// the layout the boxes are built in costs one rotation and keeps them so.
+        /// </summary>
+        Vec3d ToLoadFrame(Vec3d worldPos)
+        {
+            return TurnDegrees == 0 ? worldPos : TurnAbout(worldPos, TurnedDegrees);
+        }
 
         /// <summary>Collision boxes of the carried blocks, in world space, right now.</summary>
         Cuboidd[] GetWorldBlockBoxes()
@@ -273,6 +302,16 @@ namespace Mechworks
             if (boxes.Length > 0)
             {
                 GetBounds(boxes, out Vec3d center, out double horizontalRadius, out double verticalRadius);
+
+                // The boxes are the unturned layout, but riders are out in the world. A
+                // turning load sweeps a circle about its pivot, so search that circle
+                // instead — otherwise a rider on the far side falls outside the box the
+                // layout happens to occupy at zero degrees.
+                if (TurnDegrees != 0)
+                {
+                    horizontalRadius = ReachFromPivot(boxes);
+                    center = new Vec3d(PivotCentre.X, center.Y, PivotCentre.Z);
+                }
 
                 Entity[] nearby = World.GetEntitiesAround(
                     center,
@@ -326,8 +365,12 @@ namespace Mechworks
             Cuboidd[] boxes = GetWorldBlockBoxes();
             long now = World.ElapsedMilliseconds;
 
+            // Tested where the rider stands relative to the load, not where it stands in
+            // the world: the boxes are built unturned, so the rider comes to them.
+            Vec3d riderInLoadFrame = ToLoadFrame(rider.Pos.XYZ);
+
             Cuboidd riderBox = new Cuboidd();
-            riderBox.SetAndTranslate(rider.CollisionBox, rider.Pos.X, rider.Pos.Y, rider.Pos.Z);
+            riderBox.SetAndTranslate(rider.CollisionBox, riderInLoadFrame.X, riderInLoadFrame.Y, riderInLoadFrame.Z);
 
             // Walking lifts an entity off the ground by a hair every other tick; the grace
             // period keeps a walking rider aboard, and while it lasts they are held with a
@@ -365,12 +408,14 @@ namespace Mechworks
                 if (TryPushOut(rider, riderBox, boxes))
                 {
                     riderCarrierPos.Remove(rider.EntityId);
+                    riderTurned.Remove(rider.EntityId);
                     return;
                 }
 
                 if (!recentlySupported)
                 {
                     riderCarrierPos.Remove(rider.EntityId);
+                    riderTurned.Remove(rider.EntityId);
                     return;
                 }
             }
@@ -388,6 +433,22 @@ namespace Mechworks
             }
 
             riderCarrierPos[rider.EntityId] = carrierNow.Clone();
+
+            // The same idea for the turn: swing the rider by however much the load has
+            // turned since this rider was last handled. Negated to match the mesh, which
+            // the renderer draws at minus the placement angle.
+            if (TurnDegrees != 0)
+            {
+                float turnedNow = TurnedDegrees;
+                if (riderTurned.TryGetValue(rider.EntityId, out float turnedBefore))
+                {
+                    Vec3d swung = TurnAbout(rider.Pos.XYZ, -(turnedNow - turnedBefore));
+                    rider.Pos.X = swung.X;
+                    rider.Pos.Z = swung.Z;
+                }
+
+                riderTurned[rider.EntityId] = turnedNow;
+            }
 
             if (!supported) return;
 
@@ -610,6 +671,7 @@ namespace Mechworks
             hooks.Remove(entityId);
             hooked.Remove(entityId);
             riderCarrierPos.Remove(entityId);
+            riderTurned.Remove(entityId);
 
             // riderMemory is deliberately left alone — it has to outlive this stroke so
             // the next one recognises the same rider.
@@ -657,6 +719,27 @@ namespace Mechworks
                 rider.OnGround = true;
                 rider.PositionBeforeFalling.Set(rider.Pos.X, rider.Pos.InternalY, rider.Pos.Z);
             }
+        }
+
+        /// <summary>Distance from the pivot to the farthest corner of the load.</summary>
+        double ReachFromPivot(Cuboidd[] boxes)
+        {
+            Vec3d c = PivotCentre;
+            double worst = 0;
+
+            foreach (Cuboidd box in boxes)
+            {
+                foreach (double x in new[] { box.X1, box.X2 })
+                {
+                    foreach (double z in new[] { box.Z1, box.Z2 })
+                    {
+                        double dx = x - c.X, dz = z - c.Z;
+                        worst = System.Math.Max(worst, System.Math.Sqrt(dx * dx + dz * dz));
+                    }
+                }
+            }
+
+            return worst;
         }
 
         static void GetBounds(Cuboidd[] boxes, out Vec3d center, out double horizontalRadius, out double verticalRadius)
