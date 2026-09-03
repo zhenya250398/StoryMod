@@ -308,6 +308,16 @@ namespace Mechworks
         }
 
         /// <summary>
+        /// Lifts the given cells and hands them to a carrier that turns them about this
+        /// block over the stroke. Landing cells must have been checked already: a turn
+        /// sends every block somewhere different, so the caller knows the geometry.
+        /// </summary>
+        protected bool StartTurn(IList<BlockPos> cells, int turnDegrees)
+        {
+            return LaunchCarrier(cells, Pos, Pos, turnDegrees);
+        }
+
+        /// <summary>
         /// Lifts the given cells out of the grid and hands them to a carrier entity that
         /// flies them one cell along <paramref name="direction"/> and puts them back.
         /// </summary>
@@ -328,15 +338,25 @@ namespace Mechworks
                 if (!IsFree(ba.GetBlock(landing))) return false;
             }
 
+            BlockPos source = cells[0].Copy();
+            return LaunchCarrier(cells, source, source.AddCopy(direction), 0);
+        }
+
+        /// <summary>
+        /// Lifts the cells out of the grid and hands them to a carrier entity, which puts
+        /// them back at <paramref name="dest"/> — turned by <paramref name="turnDegrees"/>
+        /// about it — once the stroke has run.
+        ///
+        /// From here until the entity settles these blocks exist only inside the snapshot,
+        /// which is why EntityMovingBlocks puts them back even when it dies unexpectedly.
+        /// </summary>
+        bool LaunchCarrier(IList<BlockPos> cells, BlockPos source, BlockPos dest, int turnDegrees)
+        {
+            IBlockAccessor ba = Api.World.BlockAccessor;
+
             EntityProperties type = Api.World.GetEntityType(new AssetLocation("mechworks", "movingblocks"));
             if (type == null) return false;
             if (Api.World.ClassRegistry.CreateEntity(type) is not EntityMovingBlocks carrier) return false;
-
-            // From here until the entity settles, these blocks exist only inside the
-            // snapshot — which is why EntityMovingBlocks puts them back even when it dies
-            // unexpectedly.
-            BlockPos source = cells[0].Copy();
-            BlockPos dest = source.AddCopy(direction);
 
             BlockSnapshot snapshot = BlockSnapshot.Capture(ba, cells, source);
 
@@ -355,7 +375,7 @@ namespace Mechworks
 
             snapshot.ClearFromWorld(ba, source);
 
-            carrier.Configure(snapshot, source, dest, MoveDurationSec);
+            carrier.Configure(snapshot, source, dest, MoveDurationSec, turnDegrees);
             carrier.Pos.SetPos(source.X, source.InternalY, source.Z);
 
             Api.World.SpawnEntity(carrier);

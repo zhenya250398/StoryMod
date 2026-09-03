@@ -51,10 +51,23 @@ namespace Mechworks
             prog.ViewMatrix = rpi.CameraMatrixOriginf;
             prog.ProjectionMatrix = rpi.CurrentProjectionMatrix;
 
-            prog.ModelMatrix = modelMat
+            modelMat
                 .Identity()
-                .Translate((float)(origin.X - camPos.X), (float)(origin.Y - camPos.Y), (float)(origin.Z - camPos.Z))
-                .Values;
+                .Translate((float)(origin.X - camPos.X), (float)(origin.Y - camPos.Y), (float)(origin.Z - camPos.Z));
+
+            // A turning load stays put and spins about the middle of its own cell. The
+            // sign is negated because BlockSnapshot.Rotate turns (x, z) into (-z, x),
+            // which is the opposite sense to a positive rotation about Y.
+            if (entity.TurnDegrees != 0)
+            {
+                float rad = -entity.TurnedDegrees * GameMath.DEG2RAD;
+                modelMat
+                    .Translate(0.5f, 0f, 0.5f)
+                    .RotateY(rad)
+                    .Translate(-0.5f, 0f, -0.5f);
+            }
+
+            prog.ModelMatrix = modelMat.Values;
 
             // "tex" — the sampler name the standard shader actually declares.
             rpi.RenderMultiTextureMesh(meshRef, "tex");

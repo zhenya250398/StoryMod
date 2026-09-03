@@ -11,9 +11,9 @@ namespace Mechworks
     /// A quarter turn is the smallest step because it is the smallest angle that leaves
     /// every block back on the grid. Anything finer would have no resting position.
     ///
-    /// Unlike the piston and the hoist this moves each block somewhere different, so it
-    /// cannot use the shared carrier: that flies a snapshot along one offset. For now the
-    /// turn is instant; animating it needs the carrier to learn about rotation.
+    /// Unlike the piston and the hoist this moves each block somewhere different, so the
+    /// carrier had to learn about rotation: it holds the load in place and spins it about
+    /// the pivot rather than sliding it along an offset.
     /// </summary>
     public class BETurntable : BEMoverBase
     {
@@ -66,26 +66,11 @@ namespace Mechworks
             int angle = TurnAngle;
             if (!CanLand(ba, group, angle)) return false;
 
-            BlockSnapshot snapshot = BlockSnapshot.Capture(ba, group, Pos);
-
-            GlueRegistry glue = Glue;
-            if (glue != null)
-            {
-                snapshot.Glued = new bool[group.Count];
-                for (int i = 0; i < group.Count; i++)
-                {
-                    snapshot.Glued[i] = glue.IsGlued(group[i]);
-                    if (snapshot.Glued[i]) glue.Remove(group[i]);
-                }
-            }
-
             if (DebugTurn) LogTurn(group, angle);
 
-            snapshot.ClearFromWorld(ba, Pos);
-            snapshot.RestoreToWorld(Api.World, Pos, angle);
-            RestoreGlue(glue, snapshot, angle);
-
-            return true;
+            // The carrier takes it from here: it holds the blocks for the length of the
+            // stroke, spins them about this block, and puts them down turned.
+            return StartTurn(group, angle);
         }
 
         /// <summary>
@@ -137,16 +122,5 @@ namespace Mechworks
             return true;
         }
 
-        /// <summary>Glue marks turn with the blocks they belong to.</summary>
-        void RestoreGlue(GlueRegistry glue, BlockSnapshot snapshot, int angle)
-        {
-            if (glue == null || snapshot.Glued == null) return;
-
-            for (int i = 0; i < snapshot.Count && i < snapshot.Glued.Length; i++)
-            {
-                if (!snapshot.Glued[i]) continue;
-                glue.Add(BlockSnapshot.WorldPos(Pos, BlockSnapshot.Rotate(snapshot.Offsets[i], angle)));
-            }
-        }
     }
 }

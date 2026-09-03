@@ -25,6 +25,7 @@ namespace Mechworks
         const string AttrSource = "mechworksSource";
         const string AttrDest = "mechworksDest";
         const string AttrDuration = "mechworksDuration";
+        const string AttrTurn = "mechworksTurn";
 
         /// <summary>
         /// How far a rider may have sunk and still be picked up in the first place.
@@ -98,6 +99,15 @@ namespace Mechworks
         /// <summary>0 at the source cell, 1 at the destination cell.</summary>
         public float Progress { get; private set; }
 
+        /// <summary>
+        /// Degrees this load turns about its origin over the stroke, 0 for a straight move.
+        /// A turning load does not travel: source and destination are both the pivot.
+        /// </summary>
+        public int TurnDegrees { get; private set; }
+
+        /// <summary>How far round the turn is right now.</summary>
+        public float TurnedDegrees => TurnDegrees * Progress;
+
         /// <summary>False until the snapshot and both origins are known on this side.</summary>
         public bool Configured => Snapshot != null && SourceOrigin != null && DestOrigin != null;
 
@@ -118,12 +128,13 @@ namespace Mechworks
         /// <summary>
         /// Called on the server right after the entity is created, before spawning.
         /// </summary>
-        public void Configure(BlockSnapshot snapshot, BlockPos source, BlockPos dest, float durationSec)
+        public void Configure(BlockSnapshot snapshot, BlockPos source, BlockPos dest, float durationSec, int turnDegrees = 0)
         {
             Snapshot = snapshot;
             SourceOrigin = source.Copy();
             DestOrigin = dest.Copy();
             duration = durationSec;
+            TurnDegrees = turnDegrees;
 
             TreeAttribute snapTree = new TreeAttribute();
             snapshot.ToAttributes(snapTree);
@@ -132,6 +143,7 @@ namespace Mechworks
             WatchedAttributes.SetBlockPos(AttrSource, SourceOrigin);
             WatchedAttributes.SetBlockPos(AttrDest, DestOrigin);
             WatchedAttributes.SetFloat(AttrDuration, duration);
+            WatchedAttributes.SetInt(AttrTurn, turnDegrees);
         }
 
         public override void Initialize(EntityProperties properties, ICoreAPI api, long InChunkIndex3d)
@@ -143,6 +155,7 @@ namespace Mechworks
             SourceOrigin ??= WatchedAttributes.GetBlockPos(AttrSource, null);
             DestOrigin ??= WatchedAttributes.GetBlockPos(AttrDest, null);
             duration = WatchedAttributes.GetFloat(AttrDuration, duration);
+            TurnDegrees = WatchedAttributes.GetInt(AttrTurn);
 
             riderMemory = api.ModLoader.GetModSystem<MechworksModSystem>()?.Riders;
 
@@ -156,7 +169,10 @@ namespace Mechworks
                 // Hook riders right now, not on the first tick. The blocks were already
                 // taken out of the grid before this entity existed, so any physics that
                 // runs before the first tick does so with no floor under the rider.
-                UpdateRiderHooks();
+                // Carrying and shoving assume a straight slide: the delta applied to a rider is
+            // the one the blocks travel, and the support boxes are axis-aligned. Neither
+            // holds while turning, so a turning load carries nobody for now.
+            if (TurnDegrees == 0) UpdateRiderHooks();
             }
 
             if (api is ICoreClientAPI capi && Snapshot != null)
@@ -659,7 +675,7 @@ namespace Mechworks
         /// Re-applies the glue marks the blocks were carrying, at wherever they landed.
         /// Server-side only, like the registry itself.
         /// </summary>
-        void RestoreGlue(BlockPos origin)
+        void RestoreGlue(BlockPos origin, int turnDegrees)
         {
             if (Snapshot?.Glued == null || origin == null) return;
             if (World?.Side != EnumAppSide.Server) return;
@@ -670,7 +686,7 @@ namespace Mechworks
             for (int i = 0; i < Snapshot.Count && i < Snapshot.Glued.Length; i++)
             {
                 if (!Snapshot.Glued[i]) continue;
-                glue.Add(BlockSnapshot.WorldPos(origin, Snapshot.Offsets[i]));
+                glue.Add(BlockSnapshot.WorldPos(origin, BlockSnapshot.Rotate(Snapshot.Offsets[i], turnDegrees)));
             }
         }
 
@@ -680,8 +696,8 @@ namespace Mechworks
             if (settled) return;
             settled = true;
 
-            Snapshot?.RestoreToWorld(World, DestOrigin);
-            RestoreGlue(DestOrigin);
+            Snapshot?.RestoreToWorld(World, DestOrigin, TurnDegrees);
+            RestoreGlue(DestOrigin, TurnDegrees);
             Die(EnumDespawnReason.Removed);
         }
 
@@ -704,8 +720,9 @@ namespace Mechworks
                 // Past the halfway point the destination is the better guess, before it
                 // the source is — either way the blocks come back somewhere sane.
                 BlockPos landing = Progress >= 0.5f ? DestOrigin : SourceOrigin;
-                Snapshot.RestoreToWorld(World, landing);
-                RestoreGlue(landing);
+                int turn = Progress >= 0.5f ? TurnDegrees : 0;
+                Snapshot.RestoreToWorld(World, landing, turn);
+                RestoreGlue(landing, turn);
             }
 
             if (renderer != null && Api is ICoreClientAPI capi)
