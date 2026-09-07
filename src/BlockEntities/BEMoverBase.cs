@@ -208,6 +208,14 @@ namespace Mechworks
         {
         }
 
+        /// <summary>
+        /// Called on the server every tick a run is going. For machines whose own parts
+        /// move continuously with the load rather than a cell at a time.
+        /// </summary>
+        protected virtual void OnRunTick(float dt)
+        {
+        }
+
         public override void Initialize(ICoreAPI api)
         {
             base.Initialize(api);
@@ -245,6 +253,7 @@ namespace Mechworks
             // A settling load can still finish crossing a cell, and a machine that missed
             // being told would leave its own parts a cell behind the blocks.
             ReportCompletedSteps();
+            OnRunTick(dt);
 
             // Out of power, or turned round under us: come to rest on whichever grid
             // position is nearest right now. For a reversal that is also what makes the

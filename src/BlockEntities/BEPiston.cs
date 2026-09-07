@@ -36,14 +36,17 @@ namespace Mechworks
         int extension;
 
         /// <summary>
-        /// How far into the next cell the beam has driven, 0 to 1. Only used while the
-        /// machine is idle: with nothing in front there is no load and so no carrier, and
-        /// the beam still has to come out smoothly rather than jump a cell at a time.
+        /// How far the beam is driven out, in cells, while the machine is pushing nothing.
+        /// With nothing in front there is no load and so no carrier, and the beam still has
+        /// to come out smoothly rather than jump a cell at a time.
         ///
-        /// While a run is going the carrier owns the fraction — beam and load are the same
-        /// motion, and reading it off the load is the only way they cannot drift apart.
+        /// Absolute rather than a fraction of the current cell. A fraction has to be reset
+        /// every time the whole count changes, and the whole count reaches the client in
+        /// its own packet — so the reset lands before the news does and the beam jumps.
+        /// An absolute number is simply clamped into the cell the server says we are in,
+        /// and carries on from wherever it was.
         /// </summary>
-        double beamFraction;
+        double beamOut;
 
         /// <summary>Extension the current run started from, and which way it is going.</summary>
         int runStartExtension;
@@ -73,10 +76,16 @@ namespace Mechworks
         {
             get
             {
-                if (!Running) return extension + beamFraction;
+                if (!Running) return beamOut;
 
-                double frac = RunProgress - System.Math.Floor(RunProgress);
-                return extension + (runRetracting ? -frac : frac);
+                // Measured from where the run began, not from the whole-cell count. Those
+                // are two numbers that reach the client separately — the count in the
+                // machine's own packet, the progress computed here from the carrier — and
+                // combining them means every cell boundary is a moment when one has
+                // arrived and the other has not. The beam jumped a whole cell back and the
+                // trailing end stuck out by the same amount. Where the run started never
+                // changes, so there is nothing to race.
+                return runRetracting ? runStartExtension - RunProgress : runStartExtension + RunProgress;
             }
         }
 
@@ -200,18 +209,21 @@ namespace Mechworks
         {
             if (Running || Speed <= MinSpeed)
             {
-                beamFraction = 0;
+                beamOut = extension;
                 return;
             }
 
             int sign = Reversed ? -1 : 1;
             if (!BeamCanDriveFreely(sign))
             {
-                beamFraction = 0;
+                beamOut = extension;
                 return;
             }
 
-            beamFraction = GameMath.Clamp(beamFraction + StepSpeed * dt * sign, -0.999, 0.999);
+            // Never out of the cell the server says the beam is in. Crossing one is the
+            // server's call and arrives as a new extension; until it does, the drawn beam
+            // creeps up to the boundary and waits there.
+            beamOut = GameMath.Clamp(beamOut + StepSpeed * dt * sign, extension, extension + 0.999);
         }
 
         /// <summary>
@@ -264,30 +276,40 @@ namespace Mechworks
 
             beams = 0;
             extension = 0;
+            beamOut = 0;
             SyncBeamBlocks();
             base.OnBlockRemoved();
         }
 
-        /// <summary>Cells the beam occupies in front of the piston.</summary>
-        int FrontBeams => extension;
-
-        /// <summary>Cells the beam occupies behind the piston.</summary>
-        public int BackBeams => System.Math.Max(0, beams - CounterweightBeams - extension);
+        /// <summary>
+        /// Length of the extendable part of the rod, in cells. The counterweight never
+        /// leaves the machine, so it is not part of it.
+        /// </summary>
+        int RodCells => System.Math.Max(0, beams - CounterweightBeams);
 
         /// <summary>
-        /// Frees the cells the beam has left, without filling the ones it is heading for.
-        ///
-        /// The two ends want opposite timing. A cell the rod is moving into must stay empty
-        /// until it gets there, or the block appears ahead of its own animation. A cell the
-        /// rod is leaving must empty at once, or the block sits there unmoved. Continuous
-        /// motion makes both halves fall out naturally: clear when the beam leaves a cell,
-        /// fill when it finishes entering the next one, and OnStepCompleted is exactly the
-        /// moment for the second.
+        /// Cells of beam behind, at rest. Used when asking whether another beam will fit,
+        /// which is a question about the machine's load-out and not about where the rod
+        /// happens to be sliding right now.
         /// </summary>
-        void ClearVacatedBeamCells()
-        {
-            SyncBeamBlocks(place: false, clear: true);
-        }
+        public int BackBeams => System.Math.Max(0, RodCells - extension);
+
+        /// <summary>
+        /// Cells the rod covers *completely* in front and behind, right now.
+        ///
+        /// The rod is one rigid bar running from BeamOut - RodCells to BeamOut, and these
+        /// are the whole cells inside it. A cell it is halfway out of belongs to neither:
+        /// the renderer draws that end.
+        ///
+        /// The old "clear the cell being left at once, fill the cell being entered only on
+        /// arrival" rule is not a rule any more, it just falls out of this. The back count
+        /// drops the instant the rod leaves an integer; the front count rises only when it
+        /// reaches the next one. Losing that asymmetry is what left a whole extra block
+        /// sticking out the back for the length of every cell.
+        /// </summary>
+        int FrontBeamCells => GameMath.Clamp((int)System.Math.Floor(BeamOut), 0, RodCells);
+
+        int BackBeamCells => System.Math.Max(0, (int)System.Math.Floor(RodCells - BeamOut));
 
         /// <summary>
         /// Writes the beam into the world to match the machine's own counters: as much as
@@ -304,14 +326,20 @@ namespace Mechworks
             if (beam == null || beam.Id == 0) return;
 
             IBlockAccessor ba = Api.World.BlockAccessor;
-            int front = FrontBeams;
-            int back = BackBeams;
+            int front = FrontBeamCells;
+            int back = BackBeamCells;
 
             for (int i = 1; i <= MaxBeams; i++)
             {
                 SetBeamCell(ba, beam, Pos.AddCopy(facing, i), i <= front, place, clear);
                 SetBeamCell(ba, beam, Pos.AddCopy(facing.Opposite, i), i <= back, place, clear);
             }
+
+            // Recorded here rather than by the caller, so loading a beam or breaking the
+            // machine leaves the record straight too. Otherwise the next tick can find a
+            // stale pair that happens to match and skip a write that was needed.
+            syncedFront = front;
+            syncedBack = back;
         }
 
         void SetBeamCell(IBlockAccessor ba, Block beam, BlockPos at, bool wanted, bool place = true, bool clear = true)
@@ -411,7 +439,7 @@ namespace Mechworks
         {
             runStartExtension = extension;
             runRetracting = retracting;
-            beamFraction = 0;
+            beamOut = extension;
 
             if (StartMove(group, direction)) return true;
 
@@ -426,33 +454,41 @@ namespace Mechworks
         /// </summary>
         void DriveBeam(float dt, int sign)
         {
-            double moved = StepSpeed * dt * sign;
-            beamFraction += moved;
+            beamOut = GameMath.Clamp(beamOut + StepSpeed * dt * sign, 0, Reach);
 
-            while (beamFraction >= 1.0 && extension < Reach)
+            while (beamOut >= extension + 1 && extension < Reach)
             {
-                beamFraction -= 1.0;
                 extension++;
-                CommitExtension();
+                MarkDirty(true);
             }
 
-            while (beamFraction < 0.0 && extension > 0)
+            while (beamOut < extension && extension > 0)
             {
-                beamFraction += 1.0;
                 extension--;
-                CommitExtension();
+                MarkDirty(true);
             }
 
-            // Hard against an end stop: no part-cell to draw, the beam simply stays put.
-            if (extension >= Reach && beamFraction > 0) beamFraction = 0;
-            if (extension <= 0 && beamFraction < 0) beamFraction = 0;
+            SyncBeamBlocksIfMoved();
         }
 
-        void CommitExtension()
+        int syncedFront = -1;
+        int syncedBack = -1;
+
+        /// <summary>
+        /// Restates the rod in the world, but only when the cells it fully covers have
+        /// actually changed. Called every tick of a run, so the cheap check matters.
+        /// </summary>
+        void SyncBeamBlocksIfMoved()
         {
-            ClearVacatedBeamCells();
+            if (FrontBeamCells == syncedFront && BackBeamCells == syncedBack) return;
+
             SyncBeamBlocks();
             MarkDirty(true);
+        }
+
+        protected override void OnRunTick(float dt)
+        {
+            SyncBeamBlocksIfMoved();
         }
 
         /// <summary>
@@ -463,14 +499,16 @@ namespace Mechworks
         protected override void OnStepCompleted(int steps)
         {
             extension = runRetracting ? runStartExtension - steps : runStartExtension + steps;
-            CommitExtension();
+            SyncBeamBlocksIfMoved();
+            MarkDirty(true);
         }
 
         protected override void OnRunEnded()
         {
-            beamFraction = 0;
+            beamOut = extension;
             runRetracting = false;
-            CommitExtension();
+            SyncBeamBlocksIfMoved();
+            MarkDirty(true);
         }
 
         /// <summary>
@@ -537,6 +575,8 @@ namespace Mechworks
             tree.SetInt("beams", beams);
             tree.SetInt("extension", extension);
             tree.SetString("beamCode", beamCode ?? "");
+            tree.SetInt("runStartExtension", runStartExtension);
+            tree.SetBool("runRetracting", runRetracting);
         }
 
         public override void FromTreeAttributes(ITreeAttribute tree, IWorldAccessor worldAccessForResolve)
@@ -546,11 +586,14 @@ namespace Mechworks
 
             beams = tree.GetInt("beams");
 
-            // A cell boundary the server has crossed on our behalf: whatever part-cell the
-            // client had drawn its way to is now spent.
-            int wasExtension = extension;
             extension = tree.GetInt("extension");
-            if (extension != wasExtension) beamFraction = 0;
+            runStartExtension = tree.GetInt("runStartExtension");
+            runRetracting = tree.GetBool("runRetracting");
+
+            // The whole-cell count moved under us. The drawn beam does not jump to meet
+            // it — it is already somewhere sensible, and only needs to be inside the cell
+            // the server now says we are in.
+            beamOut = GameMath.Clamp(beamOut, extension, extension + 0.999);
 
             beamCode = tree.GetString("beamCode");
             if (string.IsNullOrEmpty(beamCode)) beamCode = null;
