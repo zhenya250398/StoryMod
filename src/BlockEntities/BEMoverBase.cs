@@ -239,6 +239,18 @@ namespace Mechworks
 
             bool powered = Speed > MinSpeed;
 
+            // A run that outlived a reload. The layout it was moving is not saved, so it
+            // cannot be taken back over — but it must not be built on top of either. Its
+            // own watchdog puts it down; wait for that rather than starting a second run
+            // over a load that is still off the grid.
+            if (carrier == null && carrierId != 0)
+            {
+                if (Api.World.GetEntityById(carrierId) is EntityMovingBlocks orphan && orphan.Alive) return;
+
+                carrierId = 0;
+                MarkDirty(true);
+            }
+
             // The carrier puts the blocks back itself when it settles, so noticing it has
             // gone is all the tidying up there is.
             if (carrier != null && !carrier.Alive) EndRun();
@@ -341,6 +353,36 @@ namespace Mechworks
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Ends the run because the machine itself is going away — broken, or its chunk
+        /// unloaded. The carrier does not need us after this: it settles on the nearest
+        /// whole step by itself and puts the blocks back.
+        ///
+        /// Without this the load simply stayed in the air. Nothing but the machine ever
+        /// declares a run finished, so breaking one left its blocks drawn but absent from
+        /// the world: impossible to break, and new blocks could be built straight through
+        /// them.
+        /// </summary>
+        void AbandonRun()
+        {
+            if (Api?.Side != EnumAppSide.Server) return;
+            if (carrier == null || !carrier.Alive) return;
+
+            carrier.StopAtNearest();
+        }
+
+        public override void OnBlockRemoved()
+        {
+            AbandonRun();
+            base.OnBlockRemoved();
+        }
+
+        public override void OnBlockUnloaded()
+        {
+            AbandonRun();
+            base.OnBlockUnloaded();
         }
 
         void EndRun()

@@ -234,6 +234,8 @@ namespace Mechworks
         /// </summary>
         public void Drive(double speed, double stopAt, bool finished)
         {
+            if (World != null) lastDriveMs = World.ElapsedMilliseconds;
+
             // Called on every machine tick, twenty times a second. Watched attributes go
             // out over the wire when they are written, so writing the same three numbers
             // each time would be twenty packets a second per machine for nothing. All
@@ -271,7 +273,12 @@ namespace Mechworks
             Snapshot ??= BlockSnapshot.FromAttributes(WatchedAttributes.GetTreeAttribute(AttrSnapshot));
             SourceOrigin ??= WatchedAttributes.GetBlockPos(AttrSource, null);
             ReadDrive();
-            if (api.Side == EnumAppSide.Client) ReadStartingProgress();
+
+            // Both sides. On the client this is a late joiner catching up; on the server it
+            // is a carrier coming back from a save, where starting over from zero would
+            // walk the load back through everything it had already crossed.
+            ReadStartingProgress();
+            lastDriveMs = api.World.ElapsedMilliseconds;
 
             int travel = WatchedAttributes.GetInt(AttrTravel, -1);
             TravelFacing = travel >= 0 && travel < BlockFacing.ALLFACES.Length ? BlockFacing.ALLFACES[travel] : null;
@@ -311,8 +318,15 @@ namespace Mechworks
             // which is long enough for a rider to fall out of support and never recover.
             if (!Configured) return;
 
-            if (World.Side == EnumAppSide.Server) SyncProgress();
-            else ReadDrive();
+            if (World.Side == EnumAppSide.Server)
+            {
+                if (Abandoned) StopAtNearest();
+                SyncProgress();
+            }
+            else
+            {
+                ReadDrive();
+            }
 
             Advance(dt);
 
@@ -349,7 +363,7 @@ namespace Mechworks
         }
 
         /// <summary>
-        /// Takes the server's progress once, when this side first sees the entity.
+        /// Takes the stored progress once, when this side first sees the entity.
         ///
         /// Deliberately not repeated every tick. The server publishes this twice a second,
         /// so between publications the value on the client is old — by up to half a second
@@ -367,6 +381,25 @@ namespace Mechworks
         {
             Progress = WatchedAttributes.GetDouble(AttrProgress, 0);
         }
+
+        /// <summary>
+        /// How long the carrier will run without hearing from its machine before putting
+        /// its load down.
+        ///
+        /// The machine speaks every 50ms, so twenty missed turns is a generous margin
+        /// against a server hitch and still barely a moment to a player. Without it a
+        /// carrier outlives anything that stops driving it — most obviously the machine
+        /// being broken, but also a reload, or the machine's chunk going away on its own.
+        /// Nothing else ever ends the run, because ending it is a decision the machine
+        /// makes, so the blocks stayed out of the grid for good: drawn but not there, so
+        /// they could not be broken and new blocks could be built straight through them.
+        /// </summary>
+        const int DriveTimeoutMs = 1000;
+
+        long lastDriveMs;
+
+        /// <summary>True when nobody has driven this carrier for too long.</summary>
+        bool Abandoned => !Finished && World.ElapsedMilliseconds - lastDriveMs > DriveTimeoutMs;
 
         const int ProgressSyncIntervalMs = 500;
         long lastProgressSyncMs;
