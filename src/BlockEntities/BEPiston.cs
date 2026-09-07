@@ -289,14 +289,42 @@ namespace Mechworks
         {
             if (Api?.World == null) return false;
 
-            if (sign < 0) return extension > 0 && HasRoomBehind();
-            if (extension >= Reach) return false;
+            // Gated on the continuous position, not the whole-cell count. The count is a
+            // floor, so it drops the moment the rod leaves a cell rather than when it
+            // arrives at the next one — gating on it stopped the drive a hair into the
+            // last cell, whereupon the beam eased back to the cell it had just left. The
+            // piston could never draw its final cell in; it bounced there forever.
+            if (sign < 0) return beamOut > 0 && HasRoomToDrawBack();
+            if (beamOut >= Reach) return false;
 
             BlockPos next = BeamTip.AddCopy(PushFacing);
             IBlockAccessor ba = Api.World.BlockAccessor;
 
             if (ba.GetChunkAtBlockPos(next) == null) return false;
             return IsFree(ba.GetBlock(next));
+        }
+
+        /// <summary>
+        /// Is the cell the rod's rear tip is drawing back into clear?
+        ///
+        /// Not the same question as <see cref="HasRoomBehind"/>, which asks whether a
+        /// *further* beam would fit and is about the machine's load-out. This one is about
+        /// where the rod is right now, so it counts from the cells the rod actually covers,
+        /// and it stops asking once the whole rod is inside — a fully drawn-in piston needs
+        /// nothing beyond its own trailing length.
+        /// </summary>
+        bool HasRoomToDrawBack()
+        {
+            int next = BackBeamCells + 1;
+            if (next > RodCells) return true;
+
+            BlockPos at = Pos.AddCopy(PushFacing.Opposite, next);
+            IBlockAccessor ba = Api.World.BlockAccessor;
+
+            if (ba.GetChunkAtBlockPos(at) == null) return false;
+
+            Block current = ba.GetBlock(at);
+            return IsFree(current) || IsPistonBeam(current);
         }
 
         /// <summary>
@@ -464,7 +492,7 @@ namespace Mechworks
 
             // Drawing in adds a cell of beam behind, so that cell has to be clear. Without
             // this the beam simply passed through whatever had been built there.
-            if (!HasRoomBehind()) return false;
+            if (!HasRoomToDrawBack()) return false;
 
             BlockFacing facing = PushFacing;
             IBlockAccessor ba = Api.World.BlockAccessor;
