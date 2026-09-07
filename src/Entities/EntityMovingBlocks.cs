@@ -278,13 +278,18 @@ namespace Mechworks
             SourceOrigin.X + 0.5, SourceOrigin.InternalY + 0.5, SourceOrigin.Z + 0.5);
 
         /// <summary>
-        /// Turns a point about the pivot axis, in the same sense as
-        /// <see cref="BlockSnapshot.Rotate"/> — a right-handed rotation about the axis by
-        /// MINUS the angle, which is the handedness vanilla's block codes use.
+        /// Turns a point about the pivot axis: the ordinary right-handed rotation by
+        /// PLUS the angle.
         ///
-        /// Rodrigues' formula rather than a per-axis special case, because the two have to
-        /// agree with the placement maths exactly: a rider swung by a different convention
-        /// than the blocks ends up somewhere the load never went.
+        /// Deliberately the opposite handedness to <see cref="BlockSnapshot.Rotate"/>, and
+        /// the two must not be made to agree. Rotate speaks vanilla's block-code
+        /// convention because that is what it feeds; this one is used to undo the matrix
+        /// the renderer applies, and the renderer speaks the ordinary one. Both callers
+        /// here — the load frame and the rider swing — were written against this sense,
+        /// and flipping it silently sent riders round the wrong way.
+        ///
+        /// Rodrigues' formula rather than a per-axis special case: for the vertical axis it
+        /// reduces to exactly the (x, z) maths this did before it learned about axes.
         /// </summary>
         Vec3d TurnAbout(Vec3d p, float degrees)
         {
@@ -293,7 +298,7 @@ namespace Mechworks
             Vec3d c = PivotCentre;
             Vec3i n = TurnAxis.Normali;
 
-            double rad = -degrees * GameMath.DEG2RAD;
+            double rad = degrees * GameMath.DEG2RAD;
             double cos = System.Math.Cos(rad), sin = System.Math.Sin(rad);
 
             double dx = p.X - c.X, dy = p.Y - c.Y, dz = p.Z - c.Z;
@@ -537,7 +542,10 @@ namespace Mechworks
                     rider.Pos.X = swung.X;
                     rider.Pos.Z = swung.Z;
 
-                    SwingView(rider, swing);
+                    // Yaw follows the rotation as seen about world up, which is the swing
+                    // itself for a deck facing up and its negation for one facing down —
+                    // the same axis sign that makes mounting it upside down a reverser.
+                    SwingView(rider, swing * TurnAxis.Normali.Y);
                 }
 
                 riderTurned[rider.EntityId] = turnedNow;
