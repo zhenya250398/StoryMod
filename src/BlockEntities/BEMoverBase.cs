@@ -77,6 +77,14 @@ namespace Mechworks
         int clearedSteps;
 
         /// <summary>
+        /// Which way round the machine was when this run started. A run is committed to
+        /// its direction — the cells it checks and the limit it obeys are both worked out
+        /// from it — so reversing is not something a run can absorb. It ends the run
+        /// instead, and the next one goes the other way.
+        /// </summary>
+        bool runReversed;
+
+        /// <summary>
         /// Id of the carrier, synced so the client can find it. The client draws the
         /// machine's own moving parts against the load, and only the carrier knows how far
         /// through a cell the load actually is.
@@ -238,9 +246,11 @@ namespace Mechworks
             // being told would leave its own parts a cell behind the blocks.
             ReportCompletedSteps();
 
-            // Out of power: come to rest on whichever grid position is nearest right now,
-            // which is the only way a run ends other than running out of room.
-            if (!powered)
+            // Out of power, or turned round under us: come to rest on whichever grid
+            // position is nearest right now. For a reversal that is also what makes the
+            // machine answer at once instead of finishing the cell it was in the middle
+            // of — the load settles, and the next tick starts a run the other way.
+            if (!powered || Reversed != runReversed)
             {
                 carrier.StopAtNearest();
                 return;
@@ -248,7 +258,12 @@ namespace Mechworks
 
             bool blocked = ExtendFrontier();
 
-            carrier.Drive(StepSpeed, clearedSteps, blocked);
+            // Rounded, because the shaft speed wobbles in the last decimal and Drive
+            // compares against what it last sent to decide whether to send anything at all.
+            // Unrounded it would count as changed on every one of twenty ticks a second.
+            double speed = System.Math.Round(StepSpeed, 3);
+
+            carrier.Drive(speed, clearedSteps, blocked);
         }
 
         int reportedSteps;
@@ -560,6 +575,7 @@ namespace Mechworks
             carrierId = fresh.EntityId;
             clearedSteps = 1;
             reportedSteps = 0;
+            runReversed = Reversed;
 
             MarkDirty(true);
             return true;

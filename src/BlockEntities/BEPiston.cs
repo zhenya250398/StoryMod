@@ -510,10 +510,16 @@ namespace Mechworks
         /// </summary>
         List<BlockPos> CollectPullChain(IBlockAccessor ba, BlockFacing facing)
         {
-            // The load rides on the beam tip, so it comes back to where the tip is now.
+            // The load rides on the beam tip, so it comes back to where the tip is now —
+            // a cell that holds a beam block, this machine's own. It has to be read as
+            // available or the piston can never pull anything: the old code cleared it out
+            // of the world first and put it back if the stroke was refused. Saying so here
+            // is the same answer without editing the world to ask a question.
             BlockPos landing = BeamTip.Copy();
             if (ba.GetChunkAtBlockPos(landing) == null) return null;
-            if (!IsFree(ba.GetBlock(landing))) return null;    // nothing to pull it into
+
+            Block at = ba.GetBlock(landing);
+            if (!IsFree(at) && !IsPistonBeam(at)) return null;   // nothing to pull it into
 
             BlockPos target = landing.AddCopy(facing);
             if (ba.GetChunkAtBlockPos(target) == null) return null;

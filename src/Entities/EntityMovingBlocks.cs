@@ -271,6 +271,7 @@ namespace Mechworks
             Snapshot ??= BlockSnapshot.FromAttributes(WatchedAttributes.GetTreeAttribute(AttrSnapshot));
             SourceOrigin ??= WatchedAttributes.GetBlockPos(AttrSource, null);
             ReadDrive();
+            if (api.Side == EnumAppSide.Client) ReadStartingProgress();
 
             int travel = WatchedAttributes.GetInt(AttrTravel, -1);
             TravelFacing = travel >= 0 && travel < BlockFacing.ALLFACES.Length ? BlockFacing.ALLFACES[travel] : null;
@@ -345,19 +346,27 @@ namespace Mechworks
             Speed = WatchedAttributes.GetDouble(AttrSpeed);
             StopAt = WatchedAttributes.GetDouble(AttrStopAt);
             Finished = WatchedAttributes.GetBool(AttrFinished);
-
-            // Both sides advance Progress themselves, so it is only ever a correction.
-            // Applied over a threshold rather than every time, because every snap is a
-            // jolt passed straight on to whoever is standing on the load.
-            double authoritative = WatchedAttributes.GetDouble(AttrProgress, Progress);
-            if (System.Math.Abs(authoritative - Progress) > ProgressSnapTolerance) Progress = authoritative;
         }
 
         /// <summary>
-        /// Drift between the two sides worth correcting. A twentieth of a cell is small
-        /// enough not to be seen and large enough that a normal tick never trips it.
+        /// Takes the server's progress once, when this side first sees the entity.
+        ///
+        /// Deliberately not repeated every tick. The server publishes this twice a second,
+        /// so between publications the value on the client is old — by up to half a second
+        /// of travel. Comparing it against a client that has correctly moved on and
+        /// "correcting" the difference drags the load back to where it was, every tick,
+        /// which is a fast sawtooth rather than a correction. It shook the blocks and
+        /// everyone riding them.
+        ///
+        /// There is no shared clock to age the value against, so it cannot be salvaged by
+        /// extrapolating either. It is not needed: both sides advance by the same speed and
+        /// both stop dead at the same frontier, so a client that runs ahead waits there
+        /// until the server raises it. Drift is bounded by a cell and reset at every one.
         /// </summary>
-        const double ProgressSnapTolerance = 0.05;
+        void ReadStartingProgress()
+        {
+            Progress = WatchedAttributes.GetDouble(AttrProgress, 0);
+        }
 
         const int ProgressSyncIntervalMs = 500;
         long lastProgressSyncMs;
