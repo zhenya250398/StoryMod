@@ -64,10 +64,15 @@ namespace Mechworks
             // Translating by half a block on all three axes rather than only the two
             // across the axis: the third does not matter, since a rotation leaves its own
             // axis alone, and one expression covers all six directions.
-            if (entity.TurnDegrees != 0)
+            if (entity.Turning)
             {
                 Vec3i n = entity.TurnAxis.Normali;
-                float rad = -entity.TurnedDegrees * GameMath.DEG2RAD;
+
+                // Reduced into a single circle first. A turntable that has been running
+                // for a while has turned through thousands of degrees, and a float radian
+                // that large has lost enough precision to make the load visibly judder.
+                float turned = (float)GameMath.Mod(entity.TurnedDegrees, 360);
+                float rad = -turned * GameMath.DEG2RAD;
 
                 modelMat.Translate(0.5f, 0.5f, 0.5f);
 

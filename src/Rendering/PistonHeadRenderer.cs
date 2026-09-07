@@ -7,10 +7,11 @@ namespace Mechworks
     /// <summary>
     /// Draws the moving ends of the piston's beam.
     ///
-    /// The beam itself is real blocks, and a rod of identical blocks sliding one cell looks
-    /// the same in the middle before and after — only its ends change. So only the ends are
+    /// The beam itself is real blocks, and a rod of identical blocks sliding along looks
+    /// the same in the middle wherever it is — only its ends change. So only the ends are
     /// animated: the head plate, plus one cell of beam emerging at the front and another
-    /// withdrawing at the back. All are kept out of the block's static mesh (see
+    /// withdrawing at the back. All three ride at the machine's own continuous extension,
+    /// which is the same number the load it is shoving moves by. All are kept out of the block's static mesh (see
     /// BEPiston.OnTesselation) and drawn here.
     ///
     /// Follows Vintage Kinematics' KineticPistonRenderer (MIT, Copyright (c) 2026 garward)
@@ -59,38 +60,22 @@ namespace Mechworks
             prog.ViewMatrix = rpi.CameraMatrixOriginf;
             prog.ProjectionMatrix = rpi.CurrentProjectionMatrix;
 
-            float lag = Lag();
-
             // The head is the plate on the end of the beam, so it rides at the beam tip.
-            Draw(rpi, prog, camPos, headMesh, piston.Extension + lag);
+            float outCells = (float)piston.BeamOut;
+            Draw(rpi, prog, camPos, headMesh, outCells);
 
-            // Both ends of the rod are in motion during a stroke, and the middle is
-            // indistinguishable either way. The leading segment emerges from behind the
-            // head; the trailing one withdraws into the machine. Same mesh, same lag, two
-            // ends. They are drawn only while moving: parked, each would land exactly on a
-            // real beam block and fight it for depth.
-            if (piston.Stroking)
+            // Both ends of the rod are in motion, and the middle is indistinguishable
+            // either way. The leading segment emerges from behind the head; the trailing
+            // one withdraws into the machine. Same mesh, two ends. They are drawn only
+            // while the beam is between cells: parked, each would land exactly on a real
+            // beam block and fight it for depth.
+            if (piston.BeamMoving)
             {
-                Draw(rpi, prog, camPos, segmentMesh, piston.Extension + lag);
-                Draw(rpi, prog, camPos, segmentMesh, -piston.BackBeams + lag);
+                Draw(rpi, prog, camPos, segmentMesh, outCells);
+                Draw(rpi, prog, camPos, segmentMesh, -(float)piston.BeamBack);
             }
 
             prog.Stop();
-        }
-
-        /// <summary>
-        /// How far this stroke still has to travel, signed along the push direction.
-        ///
-        /// Extension and the rear count are both stepped the moment a stroke begins, so the
-        /// visible ends start out lagging behind their final cells by a whole cell, back the
-        /// way the rod came, and catch up over the stroke.
-        /// </summary>
-        float Lag()
-        {
-            if (!piston.Stroking) return 0f;
-
-            float remaining = 1f - GameMath.Clamp(piston.StrokeProgress, 0f, 1f);
-            return piston.Reversed ? remaining : -remaining;
         }
 
         void Draw(IRenderAPI rpi, IStandardShaderProgram prog, Vec3d camPos, MultiTextureMeshRef mesh, float offset)

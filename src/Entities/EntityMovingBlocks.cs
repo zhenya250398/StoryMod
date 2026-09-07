@@ -23,10 +23,13 @@ namespace Mechworks
     {
         const string AttrSnapshot = "mechworksSnapshot";
         const string AttrSource = "mechworksSource";
-        const string AttrDest = "mechworksDest";
-        const string AttrDuration = "mechworksDuration";
-        const string AttrTurn = "mechworksTurn";
+        const string AttrTravel = "mechworksTravel";
+        const string AttrStepAngle = "mechworksStepAngle";
         const string AttrTurnAxis = "mechworksTurnAxis";
+        const string AttrProgress = "mechworksProgress";
+        const string AttrSpeed = "mechworksSpeed";
+        const string AttrStopAt = "mechworksStopAt";
+        const string AttrFinished = "mechworksFinished";
 
         /// <summary>
         /// How far a rider may have sunk and still be picked up in the first place.
@@ -93,18 +96,53 @@ namespace Mechworks
 
         long lastCarryLogMs;
 
-        public BlockSnapshot Snapshot { get; private set; }
-        public BlockPos SourceOrigin { get; private set; }
-        public BlockPos DestOrigin { get; private set; }
+        /// <summary>
+        /// How fast the load eases onto the grid once the machine has called it a day,
+        /// in steps per second. Only ever half a step to cover, and never at a crawl even
+        /// if the shaft had almost stopped.
+        /// </summary>
+        const double SettleSpeed = 3.0;
 
-        /// <summary>0 at the source cell, 1 at the destination cell.</summary>
-        public float Progress { get; private set; }
+        static readonly Vec3i NoStep = new Vec3i(0, 0, 0);
+
+        public BlockSnapshot Snapshot { get; private set; }
+
+        /// <summary>Where the run began. Fixed for the life of the carrier.</summary>
+        public BlockPos SourceOrigin { get; private set; }
+
+        /// <summary>Which way the load travels, one cell per step; null for a turning load.</summary>
+        public BlockFacing TravelFacing { get; private set; }
+
+        /// <summary>One step of travel as an offset, zero for a turning load.</summary>
+        public Vec3i StepOffset => TravelFacing?.Normali ?? NoStep;
+
+        /// <summary>Degrees the load turns per step, zero for a load that travels.</summary>
+        public int StepAngle { get; private set; }
 
         /// <summary>
-        /// Degrees this load turns about its origin over the stroke, 0 for a straight move.
-        /// A turning load does not travel: source and destination are both the pivot.
+        /// Steps completed so far, fractional and unbounded — a powered turntable turns
+        /// for as long as the shaft does. Double rather than float because of that: a
+        /// float loses a visible fraction of a degree after an hour of spinning, and both
+        /// the mesh angle and the rider swing are derived from this.
         /// </summary>
-        public int TurnDegrees { get; private set; }
+        public double Progress { get; private set; }
+
+        /// <summary>Steps per second. The machine pushes this every tick.</summary>
+        public double Speed { get; private set; }
+
+        /// <summary>
+        /// The step the load may not pass — the machine raises it as it clears the cells
+        /// ahead. The load runs up to it and waits there rather than entering a cell
+        /// nobody has checked.
+        /// </summary>
+        public double StopAt { get; private set; }
+
+        /// <summary>
+        /// Set when the machine knows there will be no further steps: out of power, out of
+        /// reach, or blocked. Until then reaching <see cref="StopAt"/> only means the
+        /// lookahead has not caught up yet, which is not a reason to put the blocks down.
+        /// </summary>
+        public bool Finished { get; private set; }
 
         /// <summary>
         /// The axis the load turns about, as a direction. Its sign matters: turning about
@@ -120,29 +158,42 @@ namespace Mechworks
         /// </summary>
         public bool TurnIsVertical => TurnAxis == BlockFacing.UP || TurnAxis == BlockFacing.DOWN;
 
+        /// <summary>How far round the load has turned so far.</summary>
+        public double TurnedDegrees => StepAngle * Progress;
+
+        /// <summary>True while the load turns rather than travels.</summary>
+        public bool Turning => StepAngle != 0;
+
         /// <summary>
-        /// The shortest sweep that ends on the same orientation: 270 becomes -90.
-        ///
-        /// Placement and animation want different numbers from the same turn. Rotate and
-        /// GetRotatedBlockCode need the angle as given, because that is the convention
-        /// they share. Sweeping it literally sends the load three quarters of the way
-        /// round to reach a place a quarter turn away.
+        /// The whole step the load will come to rest on. Half a step either way settles to
+        /// whichever is nearer, which is what makes cutting the power mid-cell land the
+        /// structure on the grid it was closest to rather than the one it set out from.
         /// </summary>
-        int SweepDegrees => GameMath.Mod(TurnDegrees + 180, 360) - 180;
+        public int SettleStep => (int)System.Math.Round(Progress, System.MidpointRounding.AwayFromZero);
 
-        /// <summary>How far round the sweep is right now.</summary>
-        public float TurnedDegrees => SweepDegrees * Progress;
+        /// <summary>Where the load comes to rest.</summary>
+        public BlockPos LandingOrigin
+        {
+            get
+            {
+                int n = SettleStep;
+                Vec3i step = StepOffset;
+                return SourceOrigin.AddCopy(step.X * n, step.Y * n, step.Z * n);
+            }
+        }
 
-        /// <summary>False until the snapshot and both origins are known on this side.</summary>
-        public bool Configured => Snapshot != null && SourceOrigin != null && DestOrigin != null;
+        /// <summary>How far the load has turned by the time it comes to rest.</summary>
+        public int LandingAngle => GameMath.Mod(StepAngle * SettleStep, 360);
 
-        float duration = 0.4f;
+        /// <summary>False until the snapshot and the origin are known on this side.</summary>
+        public bool Configured => Snapshot != null && SourceOrigin != null;
+
         bool settled;
         MovingBlocksRenderer renderer;
 
         RiderMemory riderMemory;
         readonly Dictionary<long, Vec3d> riderCarrierPos = new Dictionary<long, Vec3d>();
-        readonly Dictionary<long, float> riderTurned = new Dictionary<long, float>();
+        readonly Dictionary<long, double> riderTurned = new Dictionary<long, double>();
         readonly Dictionary<long, System.Action> hooks = new Dictionary<long, System.Action>();
         readonly Dictionary<long, Entity> hooked = new Dictionary<long, Entity>();
         readonly HashSet<long> seenThisTick = new HashSet<long>();
@@ -153,14 +204,17 @@ namespace Mechworks
 
         /// <summary>
         /// Called on the server right after the entity is created, before spawning.
+        ///
+        /// A carrier is created once per run, not once per cell. It holds the blocks out
+        /// of the grid for as long as the machine keeps feeding it, so a powered machine
+        /// moves its load without ever putting it down.
         /// </summary>
-        public void Configure(BlockSnapshot snapshot, BlockPos source, BlockPos dest, float durationSec, BlockFacing turnAxis = null, int turnDegrees = 0)
+        public void Configure(BlockSnapshot snapshot, BlockPos source, BlockFacing travel, BlockFacing turnAxis, int stepAngle)
         {
             Snapshot = snapshot;
             SourceOrigin = source.Copy();
-            DestOrigin = dest.Copy();
-            duration = durationSec;
-            TurnDegrees = turnDegrees;
+            TravelFacing = travel;
+            StepAngle = stepAngle;
             TurnAxis = turnAxis ?? BlockFacing.UP;
 
             TreeAttribute snapTree = new TreeAttribute();
@@ -168,10 +222,45 @@ namespace Mechworks
             WatchedAttributes[AttrSnapshot] = snapTree;
 
             WatchedAttributes.SetBlockPos(AttrSource, SourceOrigin);
-            WatchedAttributes.SetBlockPos(AttrDest, DestOrigin);
-            WatchedAttributes.SetFloat(AttrDuration, duration);
-            WatchedAttributes.SetInt(AttrTurn, turnDegrees);
+            WatchedAttributes.SetInt(AttrTravel, travel?.Index ?? -1);
+            WatchedAttributes.SetInt(AttrStepAngle, stepAngle);
             WatchedAttributes.SetInt(AttrTurnAxis, TurnAxis.Index);
+        }
+
+        /// <summary>
+        /// The machine's word each tick: how fast to run, how far it is safe to run, and
+        /// whether anything further is coming. Server side; the client learns it through
+        /// the watched attributes.
+        /// </summary>
+        public void Drive(double speed, double stopAt, bool finished)
+        {
+            // Called on every machine tick, twenty times a second. Watched attributes go
+            // out over the wire when they are written, so writing the same three numbers
+            // each time would be twenty packets a second per machine for nothing. All
+            // three change rarely: the speed when the shaft does, the frontier once a
+            // cell, and the last flag once a run.
+            bool changed =
+                speed != Speed || stopAt != StopAt || finished != Finished;
+
+            Speed = speed;
+            StopAt = stopAt;
+            Finished = finished;
+
+            if (!changed) return;
+
+            WatchedAttributes.SetDouble(AttrSpeed, speed);
+            WatchedAttributes.SetDouble(AttrStopAt, stopAt);
+            WatchedAttributes.SetBool(AttrFinished, finished);
+        }
+
+        /// <summary>
+        /// Bring the run to an end at whichever whole step the load is nearest right now.
+        /// Called when the power goes: the structure settles onto the grid it is closest
+        /// to, which may mean easing a fraction of a cell back the way it came.
+        /// </summary>
+        public void StopAtNearest()
+        {
+            Drive(Speed, SettleStep, true);
         }
 
         public override void Initialize(EntityProperties properties, ICoreAPI api, long InChunkIndex3d)
@@ -181,9 +270,11 @@ namespace Mechworks
             // On the client everything arrives through WatchedAttributes.
             Snapshot ??= BlockSnapshot.FromAttributes(WatchedAttributes.GetTreeAttribute(AttrSnapshot));
             SourceOrigin ??= WatchedAttributes.GetBlockPos(AttrSource, null);
-            DestOrigin ??= WatchedAttributes.GetBlockPos(AttrDest, null);
-            duration = WatchedAttributes.GetFloat(AttrDuration, duration);
-            TurnDegrees = WatchedAttributes.GetInt(AttrTurn);
+            ReadDrive();
+
+            int travel = WatchedAttributes.GetInt(AttrTravel, -1);
+            TravelFacing = travel >= 0 && travel < BlockFacing.ALLFACES.Length ? BlockFacing.ALLFACES[travel] : null;
+            StepAngle = WatchedAttributes.GetInt(AttrStepAngle);
             TurnAxis = BlockFacing.ALLFACES[GameMath.Clamp(
                 WatchedAttributes.GetInt(AttrTurnAxis, BlockFacing.UP.Index), 0, BlockFacing.ALLFACES.Length - 1)];
 
@@ -219,27 +310,76 @@ namespace Mechworks
             // which is long enough for a rider to fall out of support and never recover.
             if (!Configured) return;
 
-            if (duration <= 0f) duration = 0.4f;
-            Progress = GameMath.Clamp(Progress + dt / duration, 0f, 1f);
+            if (World.Side == EnumAppSide.Server) SyncProgress();
+            else ReadDrive();
 
-            // Both sides run the same lerp rather than leaning on entity position sync:
+            Advance(dt);
+
+            // Both sides run the same maths rather than leaning on entity position sync:
             // the motion is fully determined by Progress, and the client needs an exact
             // delta to carry the local player without jitter.
             Pos.SetPos(LerpOrigin());
 
             UpdateRiderHooks();
 
-            if (World.Side == EnumAppSide.Server && Progress >= 1f) Settle();
+            if (World.Side == EnumAppSide.Server && Finished && AtStop) Settle();
+        }
+
+        bool AtStop => System.Math.Abs(Progress - StopAt) < 1e-6;
+
+        /// <summary>
+        /// Moves the load along by one tick's worth.
+        ///
+        /// Forwards at the machine's speed, and backwards at a speed of its own: the only
+        /// time the load goes back is the last fraction of a cell when the power has gone,
+        /// and doing that at a stalling shaft's speed would take all day.
+        /// </summary>
+        void Advance(float dt)
+        {
+            if (Progress < StopAt) Progress = System.Math.Min(StopAt, Progress + Speed * dt);
+            else if (Progress > StopAt) Progress = System.Math.Max(StopAt, Progress - SettleSpeed * dt);
+        }
+
+        void ReadDrive()
+        {
+            Speed = WatchedAttributes.GetDouble(AttrSpeed);
+            StopAt = WatchedAttributes.GetDouble(AttrStopAt);
+            Finished = WatchedAttributes.GetBool(AttrFinished);
+
+            // Both sides advance Progress themselves, so it is only ever a correction.
+            // Applied over a threshold rather than every time, because every snap is a
+            // jolt passed straight on to whoever is standing on the load.
+            double authoritative = WatchedAttributes.GetDouble(AttrProgress, Progress);
+            if (System.Math.Abs(authoritative - Progress) > ProgressSnapTolerance) Progress = authoritative;
+        }
+
+        /// <summary>
+        /// Drift between the two sides worth correcting. A twentieth of a cell is small
+        /// enough not to be seen and large enough that a normal tick never trips it.
+        /// </summary>
+        const double ProgressSnapTolerance = 0.05;
+
+        const int ProgressSyncIntervalMs = 500;
+        long lastProgressSyncMs;
+
+        void SyncProgress()
+        {
+            long now = World.ElapsedMilliseconds;
+            if (now - lastProgressSyncMs < ProgressSyncIntervalMs) return;
+
+            lastProgressSyncMs = now;
+            WatchedAttributes.SetDouble(AttrProgress, Progress);
         }
 
         Vec3d LerpOrigin()
         {
-            if (SourceOrigin == null || DestOrigin == null) return Pos.XYZ;
+            if (SourceOrigin == null) return Pos.XYZ;
 
+            Vec3i step = StepOffset;
             return new Vec3d(
-                GameMath.Lerp(SourceOrigin.X, DestOrigin.X, Progress),
-                GameMath.Lerp(SourceOrigin.InternalY, DestOrigin.InternalY, Progress),
-                GameMath.Lerp(SourceOrigin.Z, DestOrigin.Z, Progress));
+                SourceOrigin.X + step.X * Progress,
+                SourceOrigin.InternalY + step.Y * Progress,
+                SourceOrigin.Z + step.Z * Progress);
         }
 
         // --- riding ---
@@ -260,9 +400,9 @@ namespace Mechworks
         /// Added rather than assigned either way, so it composes with the player's own
         /// mouse movement instead of fighting it.
         /// </summary>
-        void SwingView(Entity rider, float degrees)
+        void SwingView(Entity rider, double degrees)
         {
-            float rad = degrees * GameMath.DEG2RAD;
+            float rad = (float)(degrees * GameMath.DEG2RAD);
 
             if (Api is ICoreClientAPI capi && rider == capi.World.Player?.Entity)
             {
@@ -291,9 +431,9 @@ namespace Mechworks
         /// Rodrigues' formula rather than a per-axis special case: for the vertical axis it
         /// reduces to exactly the (x, z) maths this did before it learned about axes.
         /// </summary>
-        Vec3d TurnAbout(Vec3d p, float degrees)
+        Vec3d TurnAbout(Vec3d p, double degrees)
         {
-            if (degrees == 0f) return p.Clone();
+            if (degrees == 0) return p.Clone();
 
             Vec3d c = PivotCentre;
             Vec3i n = TurnAxis.Normali;
@@ -324,7 +464,7 @@ namespace Mechworks
         /// </summary>
         Vec3d ToLoadFrame(Vec3d worldPos)
         {
-            if (TurnDegrees == 0) return worldPos;
+            if (!Turning) return worldPos;
 
             // Vertical axis only, and deliberately. Every test built on this frame answers
             // "is the rider standing on top of something", which needs the load's up to be
@@ -388,7 +528,7 @@ namespace Mechworks
                 // turning load sweeps a circle about its pivot, so search that circle
                 // instead — otherwise a rider on the far side falls outside the box the
                 // layout happens to occupy at zero degrees.
-                if (TurnDegrees != 0)
+                if (Turning)
                 {
                     double reach = ReachFromPivot(boxes);
                     horizontalRadius = reach;
@@ -478,7 +618,7 @@ namespace Mechworks
             // Someone actively jumping off should not be pinned back down — but a rising
             // platform gives its rider upward motion every tick, and reading that as a
             // jump would drop them exactly when they most need holding.
-            bool rising = TravelDirection.Y > 0;
+            bool rising = StepOffset.Y > 0;
             bool jumping = !rising && rider.Pos.Motion != null && rider.Pos.Motion.Y > 0.01;
 
             double surfaceY = 0;
@@ -531,12 +671,12 @@ namespace Mechworks
             // edge: a rider has nothing to stand on past the first few degrees, and there
             // is no yaw that expresses being tipped over anyway. They are left in the world
             // to be shoved clear by the load, or seated on it again when it lands.
-            if (TurnDegrees != 0 && TurnIsVertical)
+            if (Turning && TurnIsVertical)
             {
-                float turnedNow = TurnedDegrees;
-                if (riderTurned.TryGetValue(rider.EntityId, out float turnedBefore))
+                double turnedNow = TurnedDegrees;
+                if (riderTurned.TryGetValue(rider.EntityId, out double turnedBefore))
                 {
-                    float swing = -(turnedNow - turnedBefore);
+                    double swing = -(turnedNow - turnedBefore);
 
                     Vec3d swung = TurnAbout(rider.Pos.XYZ, swing);
                     rider.Pos.X = swung.X;
@@ -570,10 +710,7 @@ namespace Mechworks
         }
 
         /// <summary>Unit direction the run is travelling in.</summary>
-        Vec3i TravelDirection => new Vec3i(
-            System.Math.Sign(DestOrigin.X - SourceOrigin.X),
-            System.Math.Sign(DestOrigin.InternalY - SourceOrigin.InternalY),
-            System.Math.Sign(DestOrigin.Z - SourceOrigin.Z));
+
 
         /// <summary>
         /// Shoves anything the run has driven into out of the way, along the direction of
@@ -586,7 +723,7 @@ namespace Mechworks
         /// </summary>
         bool TryPushOut(Entity rider, Cuboidd riderBox, Cuboidd[] boxes)
         {
-            Vec3i dir = TravelDirection;
+            Vec3i dir = StepOffset;
             if (dir.X == 0 && dir.Y == 0 && dir.Z == 0) return false;
 
             double furthest = 0;
@@ -741,7 +878,7 @@ namespace Mechworks
 
             World.Logger.Notification(
                 "[mechworks] carry side={0} dir={1} progress={2:0.##} boxes={3} feetY={4:0.###} nearestTopDelta={5:0.####} supported={6} recent={7} jumping={8} motionY={9:0.####} surfaceY={10:0.###} carrierY={11:0.###}",
-                World.Side, TravelDirection, Progress, boxes.Length, riderBox.Y1, nearestDelta,
+                World.Side, StepOffset, Progress, boxes.Length, riderBox.Y1, nearestDelta,
                 supported, recent, jumping, rider.Pos.Motion?.Y ?? 0, surfaceY, Pos.Y);
         }
 
@@ -794,9 +931,10 @@ namespace Mechworks
         /// </summary>
         void SnapRidersToLanding()
         {
-            if (DestOrigin == null || hooked.Count == 0) return;
+            if (SourceOrigin == null || hooked.Count == 0) return;
 
-            Cuboidd[] landed = GetBlockBoxesAt(new Vec3d(DestOrigin.X, DestOrigin.InternalY, DestOrigin.Z));
+            BlockPos landing = LandingOrigin;
+            Cuboidd[] landed = GetBlockBoxesAt(new Vec3d(landing.X, landing.InternalY, landing.Z));
             if (landed.Length == 0) return;
 
             foreach (Entity rider in hooked.Values)
@@ -905,8 +1043,11 @@ namespace Mechworks
             if (settled) return;
             settled = true;
 
-            Snapshot?.RestoreToWorld(World, DestOrigin, TurnAxis, TurnDegrees);
-            RestoreGlue(DestOrigin, TurnAxis, TurnDegrees);
+            BlockPos landing = LandingOrigin;
+            int angle = LandingAngle;
+
+            Snapshot?.RestoreToWorld(World, landing, TurnAxis, angle);
+            RestoreGlue(landing, TurnAxis, angle);
             Die(EnumDespawnReason.Removed);
         }
 
@@ -926,12 +1067,13 @@ namespace Mechworks
             if (World?.Side == EnumAppSide.Server && !settled && Snapshot != null)
             {
                 settled = true;
-                // Past the halfway point the destination is the better guess, before it
-                // the source is — either way the blocks come back somewhere sane.
-                BlockPos landing = Progress >= 0.5f ? DestOrigin : SourceOrigin;
-                int turn = Progress >= 0.5f ? TurnDegrees : 0;
-                Snapshot.RestoreToWorld(World, landing, TurnAxis, turn);
-                RestoreGlue(landing, TurnAxis, turn);
+                // Whichever whole step the load is nearest — the same rule a clean
+                // landing uses, so an unexpected death puts the blocks on the grid rather
+                // than back where the run began.
+                BlockPos landing = LandingOrigin;
+                int angle = LandingAngle;
+                Snapshot.RestoreToWorld(World, landing, TurnAxis, angle);
+                RestoreGlue(landing, TurnAxis, angle);
             }
 
             if (renderer != null && Api is ICoreClientAPI capi)

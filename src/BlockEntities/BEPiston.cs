@@ -8,7 +8,7 @@ namespace Mechworks
 {
     /// <summary>
     /// Piston: drives a beam out of itself to shove blocks away, and draws it back in to
-    /// pull them closer. One cell per stroke.
+    /// pull them closer, continuously, for as long as the shaft turns.
     ///
     /// Reach is set by how many beams have been loaded. One beam always stays inside as a
     /// counterweight, so a full load of four reaches three cells. The beams are a resource
@@ -35,8 +35,19 @@ namespace Mechworks
         int beams;
         int extension;
 
-        /// <summary>Id of the queued beam write, -1 when none is pending.</summary>
-        long pendingBeamSync = -1;
+        /// <summary>
+        /// How far into the next cell the beam has driven, 0 to 1. Only used while the
+        /// machine is idle: with nothing in front there is no load and so no carrier, and
+        /// the beam still has to come out smoothly rather than jump a cell at a time.
+        ///
+        /// While a run is going the carrier owns the fraction — beam and load are the same
+        /// motion, and reading it off the load is the only way they cannot drift apart.
+        /// </summary>
+        double beamFraction;
+
+        /// <summary>Extension the current run started from, and which way it is going.</summary>
+        int runStartExtension;
+        bool runRetracting;
 
         /// <summary>
         /// Exactly which beam went in, so exactly that comes back out. Guessing a code
@@ -50,8 +61,44 @@ namespace Mechworks
         /// <summary>How far this piston can drive its beam out, in cells.</summary>
         public int Reach => System.Math.Max(0, beams - CounterweightBeams);
 
-        /// <summary>How far the beam is currently driven out, in cells.</summary>
+        /// <summary>How far the beam is currently driven out, in whole cells.</summary>
         public int Extension => extension;
+
+        /// <summary>
+        /// How far the beam is driven out including the part-cell it is in the middle of.
+        /// This is what the renderer draws against, so the beam, its head and the blocks
+        /// it is shoving are all one motion.
+        /// </summary>
+        public double BeamOut
+        {
+            get
+            {
+                if (!Running) return extension + beamFraction;
+
+                double frac = RunProgress - System.Math.Floor(RunProgress);
+                return extension + (runRetracting ? -frac : frac);
+            }
+        }
+
+        /// <summary>Cells of beam trailing out the back, part-cells included.</summary>
+        public double BeamBack => System.Math.Max(0, beams - CounterweightBeams - BeamOut);
+
+        /// <summary>True while the beam is somewhere between two cells.</summary>
+        public bool BeamMoving => System.Math.Abs(BeamOut - System.Math.Round(BeamOut)) > 0.0001;
+
+        /// <summary>
+        /// A run is bounded by the beam: forwards by what is left of the reach, backwards
+        /// by how far it is already out. Fixed at the start of the run, because the shaft
+        /// reversing mid-run must not change what the run was allowed to do.
+        /// </summary>
+        protected override int MaxRunSteps => runRetracting ? runStartExtension : Reach - runStartExtension;
+
+        /// <summary>
+        /// The machine's own beam is not an obstacle to its own load. Retracting pulls the
+        /// load into cells the beam is currently occupying, and the beam gets out of the
+        /// way itself as the run reports each completed cell.
+        /// </summary>
+        protected override bool IsPassable(Block block) => IsFree(block) || IsPistonBeam(block);
 
         public bool CanAcceptBeam => beams < MaxBeams;
 
@@ -135,7 +182,55 @@ namespace Mechworks
             {
                 headRenderer = new PistonHeadRenderer(capi, this);
                 capi.Event.RegisterRenderer(headRenderer, EnumRenderStage.Opaque, "mechworks:pistonhead");
+
+                RegisterGameTickListener(OnClientBeamTick, 20);
             }
+        }
+
+        /// <summary>
+        /// Keeps the drawn beam moving on the client while the machine is pushing nothing.
+        ///
+        /// With a load there is a carrier, and both sides read the part-cell off it. With
+        /// nothing in front there is no carrier and nothing synced, so the client runs the
+        /// same sum against the same shaft speed. It is never allowed past the cell
+        /// boundary: crossing one is the server's call, and its word arrives as a new
+        /// extension, which is also what resets this.
+        /// </summary>
+        void OnClientBeamTick(float dt)
+        {
+            if (Running || Speed <= MinSpeed)
+            {
+                beamFraction = 0;
+                return;
+            }
+
+            int sign = Reversed ? -1 : 1;
+            if (!BeamCanDriveFreely(sign))
+            {
+                beamFraction = 0;
+                return;
+            }
+
+            beamFraction = GameMath.Clamp(beamFraction + StepSpeed * dt * sign, -0.999, 0.999);
+        }
+
+        /// <summary>
+        /// Can the beam move on its own, with no load to shove? Forwards that means reach
+        /// left and empty air in front — anything actually there is cargo, and cargo means
+        /// a carrier. Backwards it means room behind for the cell being drawn in.
+        /// </summary>
+        bool BeamCanDriveFreely(int sign)
+        {
+            if (Api?.World == null) return false;
+
+            if (sign < 0) return extension > 0 && HasRoomBehind();
+            if (extension >= Reach) return false;
+
+            BlockPos next = BeamTip.AddCopy(PushFacing);
+            IBlockAccessor ba = Api.World.BlockAccessor;
+
+            if (ba.GetChunkAtBlockPos(next) == null) return false;
+            return IsFree(ba.GetBlock(next));
         }
 
         /// <summary>
@@ -146,14 +241,6 @@ namespace Mechworks
         public override bool OnTesselation(ITerrainMeshPool mesher, ITesselatorAPI tessThreadTesselator)
         {
             return TesselateSelf(mesher, tessThreadTesselator, PistonHeadRenderer.MovingElements);
-        }
-
-        void CancelPendingBeamSync()
-        {
-            if (pendingBeamSync < 0) return;
-
-            UnregisterDelayedCallback(pendingBeamSync);
-            pendingBeamSync = -1;
         }
 
         void DisposeRenderer()
@@ -167,14 +254,12 @@ namespace Mechworks
 
         public override void OnBlockUnloaded()
         {
-            CancelPendingBeamSync();
             DisposeRenderer();
             base.OnBlockUnloaded();
         }
 
         public override void OnBlockRemoved()
         {
-            CancelPendingBeamSync();
             DisposeRenderer();
 
             beams = 0;
@@ -190,29 +275,18 @@ namespace Mechworks
         public int BackBeams => System.Math.Max(0, beams - CounterweightBeams - extension);
 
         /// <summary>
-        /// Moves the world beam in step with the stroke it is drawing.
+        /// Frees the cells the beam has left, without filling the ones it is heading for.
         ///
         /// The two ends want opposite timing. A cell the rod is moving into must stay empty
-        /// until it arrives, or the block teleports ahead of its own animation. A cell the
-        /// rod is leaving must empty at once, or the block sits there unmoved and vanishes
-        /// at the end. So: clear now, place on arrival.
-        ///
-        /// The counters step immediately either way — the renderer interpolates from them.
+        /// until it gets there, or the block appears ahead of its own animation. A cell the
+        /// rod is leaving must empty at once, or the block sits there unmoved. Continuous
+        /// motion makes both halves fall out naturally: clear when the beam leaves a cell,
+        /// fill when it finishes entering the next one, and OnStepCompleted is exactly the
+        /// moment for the second.
         /// </summary>
-        void SyncBeamBlocksForStroke()
+        void ClearVacatedBeamCells()
         {
-            if (Api?.Side != EnumAppSide.Server) return;
-
-            // Cells the rod has left are freed at once; cells it is moving into are filled
-            // only when it gets there.
             SyncBeamBlocks(place: false, clear: true);
-
-            if (pendingBeamSync >= 0) UnregisterDelayedCallback(pendingBeamSync);
-            pendingBeamSync = RegisterDelayedCallback(_ =>
-            {
-                pendingBeamSync = -1;
-                SyncBeamBlocks();
-            }, (int)(MoveDurationSec * 1000));
         }
 
         /// <summary>
@@ -268,12 +342,17 @@ namespace Mechworks
             return path != null && path.StartsWith("pistonbeam", System.StringComparison.Ordinal);
         }
 
-        protected override bool TryMove()
+        protected override bool TryStartRun(float dt)
         {
-            return Reversed ? TryRetract() : TryExtend();
+            return Reversed ? TryRetract(dt) : TryExtend(dt);
         }
 
-        bool TryExtend()
+        /// <summary>
+        /// The beam is part of the machine, not cargo: it drives out into empty air just
+        /// as happily as against a load. So there are two cases, and only one of them
+        /// needs a carrier.
+        /// </summary>
+        bool TryExtend(float dt)
         {
             if (extension >= Reach) return false;   // beam is already all the way out
 
@@ -283,28 +362,25 @@ namespace Mechworks
             BlockPos nextTip = BeamTip.AddCopy(facing);
             if (ba.GetChunkAtBlockPos(nextTip) == null) return false;
 
-            // The beam is part of the machine, not cargo: it drives out into empty air
-            // just as happily as against a load. Only something actually occupying the
-            // cell has to be shifted first, and only that can refuse the stroke.
-            if (!IsFree(ba.GetBlock(nextTip)))
+            if (IsFree(ba.GetBlock(nextTip)))
             {
-                List<BlockPos> chain = CollectPushChain(ba, facing);
-                if (chain == null) return false;
-
-                // Anything glued to the chain comes along, so a piston can shove a
-                // structure and not just the line of blocks directly ahead of it.
-                List<BlockPos> group = ExpandThroughGlue(chain);
-                if (group == null) return false;
-                if (!StartMove(group, facing)) return false;
+                // Nothing to shove: drive the beam out under our own steam.
+                DriveBeam(dt, +1);
+                return false;
             }
 
-            extension++;
-            SyncBeamBlocksForStroke();
-            MarkDirty(true);
-            return true;
+            List<BlockPos> chain = CollectPushChain(ba, facing);
+            if (chain == null) return false;
+
+            // Anything glued to the chain comes along, so a piston can shove a
+            // structure and not just the line of blocks directly ahead of it.
+            List<BlockPos> group = ExpandThroughGlue(chain);
+            if (group == null) return false;
+
+            return BeginRun(group, facing, retracting: false);
         }
 
-        bool TryRetract()
+        bool TryRetract(float dt)
         {
             if (extension <= 0) return false;       // nothing to draw back in
 
@@ -315,28 +391,86 @@ namespace Mechworks
             BlockFacing facing = PushFacing;
             IBlockAccessor ba = Api.World.BlockAccessor;
 
-            // The beam gives up its outermost cell first, otherwise the load it is dragging
-            // back has nowhere to land — the beam itself would be standing in the way.
-            SetBeamCell(ba, null, BeamTip, wanted: false);
-
             List<BlockPos> chain = CollectPullChain(ba, facing);
 
-            // Drawing the beam back in works with nothing attached to it too: the machine
-            // still has to return to rest before it can extend again.
-            if (chain != null)
+            if (chain == null)
             {
-                List<BlockPos> group = ExpandThroughGlue(chain);
-                if (group == null || !StartMove(group, facing.Opposite))
-                {
-                    SyncBeamBlocks();   // stroke refused: put the beam cell back
-                    return false;
-                }
+                // Drawing the beam back in works with nothing attached to it too: the
+                // machine still has to return to rest before it can extend again.
+                DriveBeam(dt, -1);
+                return false;
             }
 
-            extension--;
-            SyncBeamBlocksForStroke();
+            List<BlockPos> group = ExpandThroughGlue(chain);
+            if (group == null) return false;
+
+            return BeginRun(group, facing.Opposite, retracting: true);
+        }
+
+        bool BeginRun(List<BlockPos> group, BlockFacing direction, bool retracting)
+        {
+            runStartExtension = extension;
+            runRetracting = retracting;
+            beamFraction = 0;
+
+            if (StartMove(group, direction)) return true;
+
+            runRetracting = false;
+            return false;
+        }
+
+        /// <summary>
+        /// Advances the beam by itself, for the runs that carry nothing. Whole cells are
+        /// committed to the world as they are reached; the part-cell is what the renderer
+        /// draws against.
+        /// </summary>
+        void DriveBeam(float dt, int sign)
+        {
+            double moved = StepSpeed * dt * sign;
+            beamFraction += moved;
+
+            while (beamFraction >= 1.0 && extension < Reach)
+            {
+                beamFraction -= 1.0;
+                extension++;
+                CommitExtension();
+            }
+
+            while (beamFraction < 0.0 && extension > 0)
+            {
+                beamFraction += 1.0;
+                extension--;
+                CommitExtension();
+            }
+
+            // Hard against an end stop: no part-cell to draw, the beam simply stays put.
+            if (extension >= Reach && beamFraction > 0) beamFraction = 0;
+            if (extension <= 0 && beamFraction < 0) beamFraction = 0;
+        }
+
+        void CommitExtension()
+        {
+            ClearVacatedBeamCells();
+            SyncBeamBlocks();
             MarkDirty(true);
-            return true;
+        }
+
+        /// <summary>
+        /// The load has finished crossing a cell, so the beam has too — they are the same
+        /// motion. Restating the beam from the counters is what puts the arriving cell in
+        /// place at the moment it is arrived at.
+        /// </summary>
+        protected override void OnStepCompleted(int steps)
+        {
+            extension = runRetracting ? runStartExtension - steps : runStartExtension + steps;
+            CommitExtension();
+        }
+
+        protected override void OnRunEnded()
+        {
+            beamFraction = 0;
+            runRetracting = false;
+            CommitExtension();
         }
 
         /// <summary>
@@ -403,17 +537,15 @@ namespace Mechworks
         {
             base.FromTreeAttributes(tree, worldAccessForResolve);
 
-            int wasExtension = extension;
 
             beams = tree.GetInt("beams");
-            extension = tree.GetInt("extension");
 
-            // Learning the machine has moved is the client's cue to run the animation, and
-            // it arrives alongside the entity carrying whatever is being pushed.
-            if (worldAccessForResolve.Side == EnumAppSide.Client && extension != wasExtension)
-            {
-                BeginStroke();
-            }
+            // A cell boundary the server has crossed on our behalf: whatever part-cell the
+            // client had drawn its way to is now spent.
+            int wasExtension = extension;
+            extension = tree.GetInt("extension");
+            if (extension != wasExtension) beamFraction = 0;
+
             beamCode = tree.GetString("beamCode");
             if (string.IsNullOrEmpty(beamCode)) beamCode = null;
         }

@@ -6,7 +6,7 @@ namespace Mechworks
 {
     /// <summary>
     /// Rope hoist: hangs a rope straight down and moves whatever is on the end of it,
-    /// one cell per stroke.
+    /// continuously, for as long as the shaft turns.
     ///
     /// Power still comes in horizontally through the usual MPConsumer, so this sidesteps
     /// the fact that the vanilla mechanical behaviour only understands the four compass
@@ -28,26 +28,48 @@ namespace Mechworks
         /// <summary>Reversed rotation pays the rope out instead of hauling it in.</summary>
         public bool Lowering => Reversed;
 
-        /// <summary>Which way the load travels this stroke.</summary>
+        /// <summary>Which way the load travels on this run.</summary>
         public BlockFacing TravelFacing => Lowering ? BlockFacing.DOWN : BlockFacing.UP;
 
-        protected override bool TryMove()
+        /// <summary>
+        /// Cells this run may still climb before the load reaches the hoist. Worked out
+        /// once, when the run starts, from where the top of the load was then.
+        ///
+        /// Lowering has no such limit: the rope is only checked when a load is picked up,
+        /// and the ground stops the descent by being in the way.
+        /// </summary>
+        int runHeadroom = int.MaxValue;
+
+        protected override int MaxRunSteps => runHeadroom;
+
+        protected override bool TryStartRun(float dt)
         {
             IBlockAccessor ba = Api.World.BlockAccessor;
 
             BlockPos load = FindLoad(ba);
             if (load == null) return false;
 
-            // Never haul the load into the hoist itself.
-            BlockPos target = load.AddCopy(TravelFacing);
-            if (!Lowering && target.InternalY >= Pos.InternalY - (HeadroomCells - 1)) return false;
-
-            // Glue turns the single hanging block into a platform. StartMove checks that
-            // every cell of the group has somewhere to land.
+            // Glue turns the single hanging block into a platform. The base class checks
+            // that every cell of the group has somewhere to go, step by step.
             List<BlockPos> group = ExpandThroughGlue(new List<BlockPos> { load });
             if (group == null) return false;
 
+            runHeadroom = Lowering ? int.MaxValue : Headroom(group);
+            if (runHeadroom < 1) return false;
+
             return StartMove(group, TravelFacing);
+        }
+
+        /// <summary>
+        /// How many cells the load can rise before its top reaches the hoist. Measured
+        /// from the highest cell of the group, so a tall platform stops in time.
+        /// </summary>
+        int Headroom(List<BlockPos> group)
+        {
+            int top = int.MinValue;
+            foreach (BlockPos cell in group) top = System.Math.Max(top, cell.InternalY);
+
+            return Pos.InternalY - HeadroomCells - top;
         }
 
         /// <summary>

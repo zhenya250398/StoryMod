@@ -12,7 +12,7 @@ namespace Mechworks
     /// entity, and gluing arbitrary vanilla blocks must not require replacing them. So the
     /// marks live here instead, in a set saved with the world.
     ///
-    /// Server-only on purpose: groups are worked out inside TryMove, which is
+    /// Server-only on purpose: groups are worked out inside TryStartRun, which is
     /// server-authoritative, and the resulting snapshot is what reaches the client. The
     /// client never needs to know what is glued, so none of this is synced.
     /// </summary>

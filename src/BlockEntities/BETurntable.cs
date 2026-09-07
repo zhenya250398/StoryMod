@@ -44,13 +44,22 @@ namespace Mechworks
         public override float RevolutionsPerStroke => 1f / 3f;
 
         /// <summary>
-        /// Which way a stroke turns, as an angle vanilla understands.
+        /// Degrees per step, signed. A quarter turn either way; which rotation sense maps
+        /// to which sign is not derivable — it depends on the shaft convention meeting the
+        /// block-code convention — so this pairing was settled by watching the shaft and
+        /// the deck turn together.
         ///
-        /// Which rotation sense maps to which angle is not derivable — it depends on the
-        /// shaft convention meeting the block-code convention — so this pairing was settled
-        /// by watching the shaft and the deck turn together.
+        /// Signed rather than the 270 it used to be, because a run is now any number of
+        /// steps: the placement angle is this times the steps taken, reduced into a circle
+        /// when the load is finally put down.
         /// </summary>
-        int TurnAngle => Reversed ? 90 : 270;
+        int StepAngle => Reversed ? 90 : -90;
+
+        /// <summary>
+        /// A powered turntable turns until the power stops. There is nothing on the
+        /// machine to run out of, unlike a piston's beam or a hoist's headroom.
+        /// </summary>
+        protected override int MaxRunSteps => int.MaxValue;
 
         /// <summary>
         /// Temporary: reports which way a turn actually went, because the pairing between
@@ -69,20 +78,19 @@ namespace Mechworks
                 Pos, Facing, Reversed, angle, from, to, offset, BlockSnapshot.Rotate(offset, Facing, angle));
         }
 
-        protected override bool TryMove()
+        protected override bool TryStartRun(float dt)
         {
             IBlockAccessor ba = Api.World.BlockAccessor;
 
             List<BlockPos> group = CollectLoad(ba);
             if (group == null) return false;
 
-            int angle = TurnAngle;
-            if (!CanLand(ba, group, angle)) return false;
-
+            int angle = StepAngle;
             if (DebugTurn) LogTurn(group, angle);
 
-            // The carrier takes it from here: it holds the blocks for the length of the
-            // stroke, spins them about this block, and puts them down turned.
+            // The carrier takes it from here: it holds the blocks off the grid and spins
+            // them about this block for as long as the shaft keeps turning. Whether each
+            // successive quarter has room is the base class's lookahead, not ours.
             return StartTurn(group, Facing, angle);
         }
 
@@ -105,36 +113,6 @@ namespace Mechworks
             if (group == null || group.Count > MaxTurnedBlocks) return null;
 
             return group;
-        }
-
-        /// <summary>
-        /// Every cell the structure turns into has to be free, or be a cell the structure
-        /// is vacating in the same turn.
-        ///
-        /// This checks where the blocks land, not the arc they sweep through. A block on
-        /// the rim passes over its diagonal on the way round, and that diagonal is not
-        /// tested — so a turntable can currently swing a structure past an obstacle it
-        /// would have struck.
-        /// </summary>
-        bool CanLand(IBlockAccessor ba, List<BlockPos> group, int angle)
-        {
-            HashSet<BlockPos> vacated = new HashSet<BlockPos>(group);
-
-            foreach (BlockPos from in group)
-            {
-                Vec3i offset = new Vec3i(
-                    from.X - Pos.X,
-                    from.InternalY - Pos.InternalY,
-                    from.Z - Pos.Z);
-
-                BlockPos to = BlockSnapshot.WorldPos(Pos, BlockSnapshot.Rotate(offset, Facing, angle));
-
-                if (vacated.Contains(to)) continue;
-                if (ba.GetChunkAtBlockPos(to) == null) return false;
-                if (!IsFree(ba.GetBlock(to))) return false;
-            }
-
-            return true;
         }
 
     }

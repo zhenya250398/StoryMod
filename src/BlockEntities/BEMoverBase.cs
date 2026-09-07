@@ -11,10 +11,16 @@ namespace Mechworks
 {
     /// <summary>
     /// Shared machinery for anything that turns vanilla rotation into moved blocks:
-    /// reading the network, accumulating a stroke, and handing a set of cells to an
-    /// <see cref="EntityMovingBlocks"/> to fly across.
+    /// reading the network, lifting a set of cells into an
+    /// <see cref="EntityMovingBlocks"/>, and driving that carrier for as long as the
+    /// shaft turns.
     ///
-    /// Subclasses decide *what* moves and *where* — see <see cref="TryMove"/>.
+    /// A run is not a stroke. The carrier is created once and held for the whole run, so
+    /// a powered machine moves its load without ever putting it back down — no charge, no
+    /// pause, no cell-by-cell round trip through the block grid. The machine's job each
+    /// tick is to tell the carrier how fast to go and how far ahead has been checked.
+    ///
+    /// Subclasses decide *what* moves and *where* — see <see cref="TryStartRun"/>.
     /// </summary>
     public abstract class BEMoverBase : BlockEntity
     {
@@ -25,13 +31,22 @@ namespace Mechworks
         /// </summary>
         public virtual float RevolutionsPerStroke => 1f;
 
-        /// <summary>How long blocks spend in the air between the two cells.</summary>
-        public const float MoveDurationSec = 0.4f;
-
         /// <summary>Below this the network counts as stopped.</summary>
         protected const float MinSpeed = 0.001f;
 
-        const int TickIntervalMs = 250;
+        /// <summary>
+        /// Fast, because this tick is what keeps the checked frontier ahead of a moving
+        /// load. At a quarter second the load could cross more than a cell between ticks
+        /// and run into ground nobody had looked at.
+        /// </summary>
+        const int TickIntervalMs = 50;
+
+        /// <summary>
+        /// How many whole steps of clear ground to keep ahead of the load. One would do if
+        /// ticks were instant; two leaves room for a tick's worth of travel so the load
+        /// never has to wait at the frontier for the lookahead to catch up.
+        /// </summary>
+        const int Lookahead = 2;
 
         /// <summary>
         /// Temporary measurement: is the sign of the network's rotation stable for a given
@@ -46,19 +61,27 @@ namespace Mechworks
 
         int loggedSign;
 
-        float progress;
+        BEBehaviorMPConsumer mpConsumer;
+
+        /// <summary>The run in progress, server side. Null when the machine is at rest.</summary>
+        EntityMovingBlocks carrier;
+
+        /// <summary>Layout of the load, relative to the cell the run started from.</summary>
+        List<Vec3i> runOffsets;
+        BlockPos runOrigin;
+        BlockFacing runTravel;
+        BlockFacing runAxis = BlockFacing.UP;
+        int runStepAngle;
+
+        /// <summary>Highest step checked and found clear.</summary>
+        int clearedSteps;
 
         /// <summary>
-        /// When the current stroke began, in world milliseconds; -1 when at rest.
-        ///
-        /// Deliberately a timestamp rather than a countdown ticked down in OnTick: the tick
-        /// runs four times a second, so a countdown only knows about two moments inside a
-        /// 0.4s stroke. The carried blocks are interpolated every frame by their carrier
-        /// entity, and anything drawn from a coarse counter visibly lags behind them.
+        /// Id of the carrier, synced so the client can find it. The client draws the
+        /// machine's own moving parts against the load, and only the carrier knows how far
+        /// through a cell the load actually is.
         /// </summary>
-        long strokeStartMs = -1;
-
-        BEBehaviorMPConsumer mpConsumer;
+        long carrierId;
 
         /// <summary>Current network speed at this block, 0 when unpowered.</summary>
         public float Speed => mpConsumer?.TrueSpeed ?? 0f;
@@ -99,32 +122,37 @@ namespace Mechworks
             MarkDirty(true);
         }
 
-        /// <summary>True while a stroke is in the air.</summary>
-        public bool Stroking => strokeStartMs >= 0 && StrokeElapsed() < MoveDurationSec;
-
-        /// <summary>How far through the current stroke, 0 at the start and 1 at the end.</summary>
-        public float StrokeProgress =>
-            strokeStartMs < 0 ? 0f : GameMath.Clamp(StrokeElapsed() / MoveDurationSec, 0f, 1f);
-
-        float StrokeElapsed()
-        {
-            return (Api.World.ElapsedMilliseconds - strokeStartMs) / 1000f;
-        }
-
-        /// <summary>Starts the visual stroke from now.</summary>
-        protected void BeginStroke()
-        {
-            if (Api?.World == null) return;
-            strokeStartMs = Api.World.ElapsedMilliseconds;
-        }
-
-        /// <summary>Seconds until the next stroke at the current speed, 0 when unpowered.</summary>
-        public float SecondsToNextStroke
+        /// <summary>
+        /// The carrier of the run in progress, on either side. The server holds it
+        /// directly; the client looks it up by the synced id, which is how the machine's
+        /// own animated parts stay glued to the load they are pushing.
+        /// </summary>
+        public EntityMovingBlocks Carrier
         {
             get
             {
-                float speed = Speed;
-                return speed <= MinSpeed ? 0f : (RevolutionsPerStroke - progress) / speed;
+                if (carrier != null && carrier.Alive) return carrier;
+                if (Api?.World == null || carrierId == 0) return null;
+
+                return Api.World.GetEntityById(carrierId) as EntityMovingBlocks;
+            }
+        }
+
+        /// <summary>True while a load is off the grid and moving.</summary>
+        public bool Running => Carrier != null;
+
+        /// <summary>
+        /// How far the current run has got, in whole cells plus a fraction. Zero at rest.
+        /// </summary>
+        public double RunProgress => Carrier?.Progress ?? 0;
+
+        /// <summary>Steps per second at the current shaft speed.</summary>
+        public float StepSpeed
+        {
+            get
+            {
+                float per = RevolutionsPerStroke;
+                return per <= 0f ? 0f : Speed / per;
             }
         }
 
@@ -132,10 +160,45 @@ namespace Mechworks
         protected virtual string StrokeNoun => "move";
 
         /// <summary>
-        /// Runs on the server when a stroke fires. Should work out which cells move and
-        /// call <see cref="StartMove"/>. Returning false just means nothing happened.
+        /// Runs on the server when a powered machine has no run going. Should work out
+        /// which cells move and call <see cref="StartMove"/> or <see cref="StartTurn"/>.
+        /// Returning false just means there was nothing to do this tick.
         /// </summary>
-        protected abstract bool TryMove();
+        /// <param name="dt">
+        /// Seconds since the last tick. A machine with moving parts of its own — the
+        /// piston and its beam — has to keep them going even on the ticks where there is
+        /// no load to pick up, and this is the only tick it gets while idle.
+        /// </param>
+        protected abstract bool TryStartRun(float dt);
+
+        /// <summary>
+        /// How many steps this machine will allow in one run, before anything in the way
+        /// is considered. A piston is bounded by its beam, a hoist by its rope; a turntable
+        /// has no such limit and turns until the power stops.
+        /// </summary>
+        protected virtual int MaxRunSteps => int.MaxValue;
+
+        /// <summary>
+        /// A cell the load may pass into. Free by default; the piston widens this to
+        /// include its own beam, which it moves out of the way itself.
+        /// </summary>
+        protected virtual bool IsPassable(Block block) => IsFree(block);
+
+        /// <summary>
+        /// Called on the server whenever the load has fully entered a new cell, with the
+        /// number of whole steps completed. Machines with parts of their own to keep in
+        /// step — the piston and its beam — do it here.
+        /// </summary>
+        protected virtual void OnStepCompleted(int steps)
+        {
+        }
+
+        /// <summary>
+        /// Called on the server once a run is over and the blocks are back in the grid.
+        /// </summary>
+        protected virtual void OnRunEnded()
+        {
+        }
 
         public override void Initialize(ICoreAPI api)
         {
@@ -149,29 +212,130 @@ namespace Mechworks
             RegisterGameTickListener(OnTick, TickIntervalMs);
         }
 
+        /// <summary>
+        /// Drives the run. Everything here is server side: the client has nothing to
+        /// decide, it watches the carrier the server gave it.
+        /// </summary>
         void OnTick(float dt)
         {
             if (DebugRotation) LogRotationIfChanged();
-
-            float speed = Speed;
-            if (speed <= MinSpeed) return;
-
-            progress += speed * dt;
-            if (progress < RevolutionsPerStroke) return;
-
-            // A stroke is still in the air. Hold the charge rather than firing again —
-            // the blocks of the previous stroke are not in the grid to be found right now.
-            if (Stroking) return;
-
-            progress -= RevolutionsPerStroke;
-
-            // Only the server starts strokes. The client used to start its own from this
-            // same accumulator, which drifts by up to a tick — a quarter second against a
-            // stroke lasting under half of one. It now starts the animation when it is told
-            // the machine moved, which is also when the carrier entity carrying the load
-            // shows up, so the two stay together.
             if (Api.Side != EnumAppSide.Server) return;
-            if (TryMove()) BeginStroke();
+
+            bool powered = Speed > MinSpeed;
+
+            // The carrier puts the blocks back itself when it settles, so noticing it has
+            // gone is all the tidying up there is.
+            if (carrier != null && !carrier.Alive) EndRun();
+
+            if (carrier == null)
+            {
+                if (powered) TryStartRun(dt);
+                return;
+            }
+
+            // Before anything else, and on every tick including the one the power dies on.
+            // A settling load can still finish crossing a cell, and a machine that missed
+            // being told would leave its own parts a cell behind the blocks.
+            ReportCompletedSteps();
+
+            // Out of power: come to rest on whichever grid position is nearest right now,
+            // which is the only way a run ends other than running out of room.
+            if (!powered)
+            {
+                carrier.StopAtNearest();
+                return;
+            }
+
+            bool blocked = ExtendFrontier();
+
+            carrier.Drive(StepSpeed, clearedSteps, blocked);
+        }
+
+        int reportedSteps;
+
+        /// <summary>
+        /// Tells the machine about every whole cell the load has finished crossing, one at
+        /// a time and in order, so nothing is skipped if a tick was long.
+        /// </summary>
+        void ReportCompletedSteps()
+        {
+            if (carrier == null) return;
+
+            int done = (int)System.Math.Floor(carrier.Progress);
+            while (reportedSteps < done)
+            {
+                reportedSteps++;
+                OnStepCompleted(reportedSteps);
+            }
+        }
+
+        /// <summary>
+        /// Pushes the checked frontier far enough ahead of the load, and reports whether it
+        /// could not be pushed as far as wanted — which is what tells the carrier this run
+        /// is going to end where the frontier now is.
+        /// </summary>
+        bool ExtendFrontier()
+        {
+            while (clearedSteps < carrier.Progress + Lookahead)
+            {
+                if (clearedSteps >= MaxRunSteps) return true;
+                if (!LoadFitsAt(clearedSteps + 1)) return true;
+
+                clearedSteps++;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Would the load sit legally if it had taken this many steps?
+        ///
+        /// Every cell of it is tested, not just the leading face. The load is out of the
+        /// grid while it runs, so the cells it came from read as air and there is nothing
+        /// to subtract — the same reason a solid group can shuffle along at all.
+        /// </summary>
+        bool LoadFitsAt(int step, HashSet<BlockPos> ignore = null)
+        {
+            if (runOffsets == null || runOrigin == null) return false;
+
+            IBlockAccessor ba = Api.World.BlockAccessor;
+            Vec3i dir = runTravel?.Normali ?? new Vec3i(0, 0, 0);
+            int angle = GameMath.Mod(runStepAngle * step, 360);
+
+            foreach (Vec3i offset in runOffsets)
+            {
+                Vec3i turned = BlockSnapshot.Rotate(offset, runAxis, angle);
+
+                BlockPos pos = runOrigin.AddCopy(
+                    turned.X + dir.X * step,
+                    turned.Y + dir.Y * step,
+                    turned.Z + dir.Z * step);
+
+                if (ignore != null && ignore.Contains(pos)) continue;
+                if (ba.GetChunkAtBlockPos(pos) == null) return false;
+                if (!IsPassable(ba.GetBlock(pos))) return false;
+            }
+
+            return true;
+        }
+
+        void EndRun()
+        {
+            // The carrier may have settled and died between two of our ticks, taking its
+            // last cell with it. Its fields outlive the entity, so the tally is still
+            // there to be read and the machine's own parts end up where the blocks did.
+            ReportCompletedSteps();
+            OnRunEnded();
+
+            carrier = null;
+            carrierId = 0;
+            runOffsets = null;
+            runOrigin = null;
+            runTravel = null;
+            runStepAngle = 0;
+            clearedSteps = 0;
+            reportedSteps = 0;
+            MarkDirty(true);
         }
 
         /// <summary>
@@ -309,57 +473,67 @@ namespace Mechworks
 
         /// <summary>
         /// Lifts the given cells and hands them to a carrier that turns them about the
-        /// given axis through this block over the stroke. Landing cells must have been
-        /// checked already: a turn sends every block somewhere different, so the caller
-        /// knows the geometry.
+        /// given axis through this block, a step at a time, for as long as the run lasts.
         /// </summary>
-        protected bool StartTurn(IList<BlockPos> cells, BlockFacing axis, int turnDegrees)
+        protected bool StartTurn(IList<BlockPos> cells, BlockFacing axis, int stepAngle)
         {
-            return LaunchCarrier(cells, Pos, Pos, axis, turnDegrees);
+            return StartRun(cells, Pos, null, axis, stepAngle);
         }
 
         /// <summary>
-        /// Lifts the given cells out of the grid and hands them to a carrier entity that
-        /// flies them one cell along <paramref name="direction"/> and puts them back.
+        /// Lifts the given cells out of the grid and hands them to a carrier that runs them
+        /// along <paramref name="direction"/> one cell per step.
         /// </summary>
         protected bool StartMove(IList<BlockPos> cells, BlockFacing direction)
         {
             if (cells == null || cells.Count == 0) return false;
-
-            IBlockAccessor ba = Api.World.BlockAccessor;
-
-            // Every cell needs somewhere to land. A cell vacated by another group member
-            // counts as free — that is what lets a solid group shuffle along at all.
-            HashSet<BlockPos> group = new HashSet<BlockPos>(cells);
-            foreach (BlockPos cell in cells)
-            {
-                BlockPos landing = cell.AddCopy(direction);
-                if (group.Contains(landing)) continue;
-                if (ba.GetChunkAtBlockPos(landing) == null) return false;
-                if (!IsFree(ba.GetBlock(landing))) return false;
-            }
-
-            BlockPos source = cells[0].Copy();
-            return LaunchCarrier(cells, source, source.AddCopy(direction), null, 0);
+            return StartRun(cells, cells[0], direction, null, 0);
         }
 
         /// <summary>
-        /// Lifts the cells out of the grid and hands them to a carrier entity, which puts
-        /// them back at <paramref name="dest"/> — turned by <paramref name="turnDegrees"/>
-        /// about it — once the stroke has run.
+        /// Starts a run: records the layout, checks that the first step is actually
+        /// possible, then lifts the blocks and spawns the carrier that owns them until the
+        /// run ends.
         ///
-        /// From here until the entity settles these blocks exist only inside the snapshot,
+        /// From here until the carrier settles these blocks exist only inside the snapshot,
         /// which is why EntityMovingBlocks puts them back even when it dies unexpectedly.
         /// </summary>
-        bool LaunchCarrier(IList<BlockPos> cells, BlockPos source, BlockPos dest, BlockFacing axis, int turnDegrees)
+        bool StartRun(IList<BlockPos> cells, BlockPos origin, BlockFacing travel, BlockFacing axis, int stepAngle)
         {
+            if (cells == null || cells.Count == 0) return false;
+            if (MaxRunSteps < 1) return false;
+
             IBlockAccessor ba = Api.World.BlockAccessor;
+
+            runOrigin = origin.Copy();
+            runTravel = travel;
+            runAxis = axis ?? BlockFacing.UP;
+            runStepAngle = stepAngle;
+            runOffsets = new List<Vec3i>(cells.Count);
+
+            foreach (BlockPos cell in cells)
+            {
+                runOffsets.Add(new Vec3i(
+                    cell.X - runOrigin.X,
+                    cell.InternalY - runOrigin.InternalY,
+                    cell.Z - runOrigin.Z));
+            }
+
+            // The load is still in the grid at this point, so its own cells have to be
+            // discounted — that is what lets a solid group shuffle along at all. Once it is
+            // lifted they read as air and no such exception is needed.
+            if (!LoadFitsAt(1, new HashSet<BlockPos>(cells)))
+            {
+                runOffsets = null;
+                runOrigin = null;
+                return false;
+            }
 
             EntityProperties type = Api.World.GetEntityType(new AssetLocation("mechworks", "movingblocks"));
             if (type == null) return false;
-            if (Api.World.ClassRegistry.CreateEntity(type) is not EntityMovingBlocks carrier) return false;
+            if (Api.World.ClassRegistry.CreateEntity(type) is not EntityMovingBlocks fresh) return false;
 
-            BlockSnapshot snapshot = BlockSnapshot.Capture(ba, cells, source);
+            BlockSnapshot snapshot = BlockSnapshot.Capture(ba, cells, runOrigin);
 
             // Glue marks travel with the blocks. Lift them here; the carrier puts them
             // back wherever it puts the blocks down, including an emergency landing.
@@ -374,12 +548,20 @@ namespace Mechworks
                 }
             }
 
-            snapshot.ClearFromWorld(ba, source);
+            snapshot.ClearFromWorld(ba, runOrigin);
 
-            carrier.Configure(snapshot, source, dest, MoveDurationSec, axis, turnDegrees);
-            carrier.Pos.SetPos(source.X, source.InternalY, source.Z);
+            fresh.Configure(snapshot, runOrigin, travel, runAxis, stepAngle);
+            fresh.Drive(StepSpeed, 1, false);
+            fresh.Pos.SetPos(runOrigin.X, runOrigin.InternalY, runOrigin.Z);
 
-            Api.World.SpawnEntity(carrier);
+            Api.World.SpawnEntity(fresh);
+
+            carrier = fresh;
+            carrierId = fresh.EntityId;
+            clearedSteps = 1;
+            reportedSteps = 0;
+
+            MarkDirty(true);
             return true;
         }
 
@@ -402,14 +584,14 @@ namespace Mechworks
         public override void ToTreeAttributes(ITreeAttribute tree)
         {
             base.ToTreeAttributes(tree);
-            tree.SetFloat("progress", progress);
+            tree.SetLong("carrierId", carrierId);
             tree.SetBool("inverted", Inverted);
         }
 
         public override void FromTreeAttributes(ITreeAttribute tree, IWorldAccessor worldAccessForResolve)
         {
             base.FromTreeAttributes(tree, worldAccessForResolve);
-            progress = tree.GetFloat("progress");
+            carrierId = tree.GetLong("carrierId");
             Inverted = tree.GetBool("inverted");
         }
 
@@ -424,14 +606,21 @@ namespace Mechworks
                 return;
             }
 
-            // Speed is revolutions per second; a stroke costs RevolutionsPerStroke of them.
             sb.AppendLine(string.Format("Rotation: {0}{1}",
                 RotationReversed ? "reversed" : "forward",
                 Inverted ? " (flipped by hand)" : ""));
             sb.AppendLine(string.Format("Speed: {0:0.###}/s", speed));
-            sb.AppendLine(string.Format("Charge: {0:P0}", progress / RevolutionsPerStroke));
-            sb.AppendLine(string.Format("Next {0} in {1:0.#}s (one every {2:0.#}s)",
-                StrokeNoun, SecondsToNextStroke, RevolutionsPerStroke / speed));
+
+            // Steps per second, and its reciprocal, which is the more useful of the two
+            // when watching a machine crawl.
+            float steps = StepSpeed;
+            sb.AppendLine(steps <= 0f
+                ? "Stalled"
+                : string.Format("One {0} every {1:0.##}s", StrokeNoun, 1f / steps));
+
+            sb.AppendLine(Running
+                ? string.Format("Running: {0:0.##} {1}s so far", RunProgress, StrokeNoun)
+                : "Idle");
         }
     }
 }
