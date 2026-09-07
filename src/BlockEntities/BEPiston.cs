@@ -191,39 +191,93 @@ namespace Mechworks
             {
                 headRenderer = new PistonHeadRenderer(capi, this);
                 capi.Event.RegisterRenderer(headRenderer, EnumRenderStage.Opaque, "mechworks:pistonhead");
-
-                RegisterGameTickListener(OnClientBeamTick, 20);
             }
+
+            // Both sides, and faster than the machine's own tick, because this is the only
+            // thing keeping the beam moving when there is no load — and the only thing that
+            // parks it on the grid when the power goes. The machine tick cannot do it: it
+            // stops being called at all once there is no power and no run.
+            RegisterGameTickListener(TickBeam, 20);
         }
 
         /// <summary>
-        /// Keeps the drawn beam moving on the client while the machine is pushing nothing.
-        ///
-        /// With a load there is a carrier, and both sides read the part-cell off it. With
-        /// nothing in front there is no carrier and nothing synced, so the client runs the
-        /// same sum against the same shaft speed. It is never allowed past the cell
-        /// boundary: crossing one is the server's call, and its word arrives as a new
-        /// extension, which is also what resets this.
+        /// How fast a free beam eases onto the nearest whole cell once nothing is driving
+        /// it, in cells per second. Same idea as the carrier's settle: never at the speed
+        /// of the shaft that has just stopped.
         /// </summary>
-        void OnClientBeamTick(float dt)
+        const double BeamSettleSpeed = 3.0;
+
+        /// <summary>
+        /// Moves the beam when there is no load to move it with, on both sides.
+        ///
+        /// With a load there is a carrier and the beam simply reads its position — beam
+        /// and load are the same motion. With nothing in front there is no carrier and
+        /// nothing synced, so both sides run the same sum against the same shaft speed.
+        ///
+        /// The important half is what happens when it is *not* being driven: the beam
+        /// eases onto the nearest whole cell, exactly as a carried load does. Leaving it
+        /// parked mid-cell was two visible faults at once. The cells the rod covers are
+        /// counted with a floor, so a rod stopped at three-and-a-bit covers one cell fewer
+        /// behind than it should — a beam block missing at the back for as long as it sat
+        /// there. And the client, which used to snap its drawing back to the whole count
+        /// when the power went, then disagreed with the server by most of a cell; when the
+        /// power came back the server crossed the boundary at once and the drawn beam
+        /// jumped a whole cell to catch up.
+        /// </summary>
+        void TickBeam(float dt)
         {
-            if (Running || Speed <= MinSpeed)
+            // A run owns the position outright; keep our own copy level with it so there
+            // is nothing to jump when the run ends.
+            if (Running)
             {
-                beamOut = extension;
+                beamOut = BeamOut;
                 return;
             }
 
             int sign = Reversed ? -1 : 1;
-            if (!BeamCanDriveFreely(sign))
+
+            if (Speed > MinSpeed && BeamCanDriveFreely(sign))
             {
-                beamOut = extension;
+                beamOut += StepSpeed * dt * sign;
+            }
+            else
+            {
+                double target = System.Math.Round(beamOut, System.MidpointRounding.AwayFromZero);
+                double step = BeamSettleSpeed * dt;
+
+                beamOut = beamOut < target
+                    ? System.Math.Min(target, beamOut + step)
+                    : System.Math.Max(target, beamOut - step);
+            }
+
+            beamOut = GameMath.Clamp(beamOut, 0, Reach);
+
+            if (Api.Side == EnumAppSide.Server)
+            {
+                UpdateExtensionFromBeamOut();
+                SyncBeamBlocksIfMoved();
                 return;
             }
 
             // Never out of the cell the server says the beam is in. Crossing one is the
             // server's call and arrives as a new extension; until it does, the drawn beam
             // creeps up to the boundary and waits there.
-            beamOut = GameMath.Clamp(beamOut + StepSpeed * dt * sign, extension, extension + 0.999);
+            beamOut = GameMath.Clamp(beamOut, extension, extension + 0.999);
+        }
+
+        void UpdateExtensionFromBeamOut()
+        {
+            while (beamOut >= extension + 1 && extension < Reach)
+            {
+                extension++;
+                MarkDirty(true);
+            }
+
+            while (beamOut < extension && extension > 0)
+            {
+                extension--;
+                MarkDirty(true);
+            }
         }
 
         /// <summary>
@@ -372,7 +426,7 @@ namespace Mechworks
 
         protected override bool TryStartRun(float dt)
         {
-            return Reversed ? TryRetract(dt) : TryExtend(dt);
+            return Reversed ? TryRetract() : TryExtend();
         }
 
         /// <summary>
@@ -380,7 +434,7 @@ namespace Mechworks
         /// as happily as against a load. So there are two cases, and only one of them
         /// needs a carrier.
         /// </summary>
-        bool TryExtend(float dt)
+        bool TryExtend()
         {
             if (extension >= Reach) return false;   // beam is already all the way out
 
@@ -390,12 +444,8 @@ namespace Mechworks
             BlockPos nextTip = BeamTip.AddCopy(facing);
             if (ba.GetChunkAtBlockPos(nextTip) == null) return false;
 
-            if (IsFree(ba.GetBlock(nextTip)))
-            {
-                // Nothing to shove: drive the beam out under our own steam.
-                DriveBeam(dt, +1);
-                return false;
-            }
+            // Nothing to shove: no run, and TickBeam drives the bare beam out.
+            if (IsFree(ba.GetBlock(nextTip))) return false;
 
             List<BlockPos> chain = CollectPushChain(ba, facing);
             if (chain == null) return false;
@@ -408,7 +458,7 @@ namespace Mechworks
             return BeginRun(group, facing, retracting: false);
         }
 
-        bool TryRetract(float dt)
+        bool TryRetract()
         {
             if (extension <= 0) return false;       // nothing to draw back in
 
@@ -421,13 +471,10 @@ namespace Mechworks
 
             List<BlockPos> chain = CollectPullChain(ba, facing);
 
-            if (chain == null)
-            {
-                // Drawing the beam back in works with nothing attached to it too: the
-                // machine still has to return to rest before it can extend again.
-                DriveBeam(dt, -1);
-                return false;
-            }
+            // Drawing the beam back in works with nothing attached to it too: TickBeam
+            // does that, and the machine still has to return to rest before it can
+            // extend again.
+            if (chain == null) return false;
 
             List<BlockPos> group = ExpandThroughGlue(chain);
             if (group == null) return false;
@@ -445,30 +492,6 @@ namespace Mechworks
 
             runRetracting = false;
             return false;
-        }
-
-        /// <summary>
-        /// Advances the beam by itself, for the runs that carry nothing. Whole cells are
-        /// committed to the world as they are reached; the part-cell is what the renderer
-        /// draws against.
-        /// </summary>
-        void DriveBeam(float dt, int sign)
-        {
-            beamOut = GameMath.Clamp(beamOut + StepSpeed * dt * sign, 0, Reach);
-
-            while (beamOut >= extension + 1 && extension < Reach)
-            {
-                extension++;
-                MarkDirty(true);
-            }
-
-            while (beamOut < extension && extension > 0)
-            {
-                extension--;
-                MarkDirty(true);
-            }
-
-            SyncBeamBlocksIfMoved();
         }
 
         int syncedFront = -1;
