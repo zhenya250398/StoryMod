@@ -56,15 +56,26 @@ namespace Mechworks
                 .Translate((float)(origin.X - camPos.X), (float)(origin.Y - camPos.Y), (float)(origin.Z - camPos.Z));
 
             // A turning load stays put and spins about the middle of its own cell. The
-            // sign is negated because BlockSnapshot.Rotate turns (x, z) into (-z, x),
-            // which is the opposite sense to a positive rotation about Y.
+            // sign is negated because BlockSnapshot.Rotate is a right-handed rotation by
+            // MINUS the angle — the handedness vanilla's block codes use, not the usual
+            // one. Turning about a negative axis (down, west, north) is the same motion
+            // the other way round again, which the axis component's sign takes care of.
+            //
+            // Translating by half a block on all three axes rather than only the two
+            // across the axis: the third does not matter, since a rotation leaves its own
+            // axis alone, and one expression covers all six directions.
             if (entity.TurnDegrees != 0)
             {
+                Vec3i n = entity.TurnAxis.Normali;
                 float rad = -entity.TurnedDegrees * GameMath.DEG2RAD;
-                modelMat
-                    .Translate(0.5f, 0f, 0.5f)
-                    .RotateY(rad)
-                    .Translate(-0.5f, 0f, -0.5f);
+
+                modelMat.Translate(0.5f, 0.5f, 0.5f);
+
+                if (n.X != 0) modelMat.RotateX(rad * n.X);
+                else if (n.Y != 0) modelMat.RotateY(rad * n.Y);
+                else modelMat.RotateZ(rad * n.Z);
+
+                modelMat.Translate(-0.5f, -0.5f, -0.5f);
             }
 
             prog.ModelMatrix = modelMat.Values;

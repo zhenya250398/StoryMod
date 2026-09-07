@@ -1,5 +1,5 @@
 {
-	"comment": "Turns about the vertical axis, so the model is symmetric and needs no variant. Solid through the whole cell: the first version was a thin deck on a narrow hub and read as see-through, because it mostly was.",
+	"comment": "Modelled with the deck on top and the shaft socket underneath; blocktype json tips it to each of the six facings. Solid through the whole cell: the first version was a thin deck on a narrow hub and read as see-through, because it mostly was.",
 	"textureWidth": 16,
 	"textureHeight": 16,
 	"textures": {

@@ -4,13 +4,25 @@
 	entityClass: "MechworksTurntable",
 	// Vanilla mechanical power hookup. mechPartShape: null is mandatory — see piston.json.
 	entityBehaviors: [{ name: "MPConsumer", properties: { resistance: 0.5, mechPartShape: null } }],
-	creativeinventory: { "general": ["*"], "mechanics": ["*"] },
+	variantgroups: [
+		{ code: "side", states: ["up", "down", "north", "east", "south", "west"] }
+	],
+	creativeinventory: { "general": ["*-up"], "mechanics": ["*-up"] },
 	drawtype: "json",
 	// Vanilla assets all live under the "game" domain whatever folder they sit in.
 	// Referenced the same way as piston.json and pistonbeam.json, the two custom-model
 	// blocks that render correctly. Plain "shape" was the one untried combination.
+	// Modelled with the deck on top, so each variant tips it to face its own way.
+	// VS shape rotation is the ordinary right-handed one: rotateX 90 sends +Y to +Z
+	// (south), rotateZ 90 sends +Y to -X (west). Checked the same way piston.json's
+	// rotateY table was, against a vanilla block whose facing is visible.
 	shapebytype: {
-		"*": { base: "block/turntable" }
+		"*-up":    { base: "block/turntable" },
+		"*-south": { base: "block/turntable", rotateX: 90 },
+		"*-down":  { base: "block/turntable", rotateX: 180 },
+		"*-north": { base: "block/turntable", rotateX: 270 },
+		"*-west":  { base: "block/turntable", rotateZ: 90 },
+		"*-east":  { base: "block/turntable", rotateZ: 270 }
 	},
 	textures: {
 		wood: { base: "game:block/wood/planks/generic" },
@@ -20,6 +32,10 @@
 	resistance: 3.5,
 	lightAbsorption: 0,
 	maxStackSize: 8,
+	// All six mountings drop the same item; the facing is chosen on placement.
+	drops: [
+		{ type: "block", code: "turntable-up", quantity: { avg: 1 } }
+	],
 	sideOpaque: { all: false },
 	sidesolid: { all: false },
 	sounds: {

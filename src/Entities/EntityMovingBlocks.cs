@@ -26,6 +26,7 @@ namespace Mechworks
         const string AttrDest = "mechworksDest";
         const string AttrDuration = "mechworksDuration";
         const string AttrTurn = "mechworksTurn";
+        const string AttrTurnAxis = "mechworksTurnAxis";
 
         /// <summary>
         /// How far a rider may have sunk and still be picked up in the first place.
@@ -106,6 +107,20 @@ namespace Mechworks
         public int TurnDegrees { get; private set; }
 
         /// <summary>
+        /// The axis the load turns about, as a direction. Its sign matters: turning about
+        /// DOWN is the same motion as turning about UP the other way, which is what lets a
+        /// machine be reversed by mounting it the other way up.
+        /// </summary>
+        public BlockFacing TurnAxis { get; private set; } = BlockFacing.UP;
+
+        /// <summary>
+        /// True while the load turns about a vertical axis — the only case where a rider
+        /// can be carried round. Everything else is a wheel standing on edge: gravity does
+        /// not turn with it, so there is nothing to stand on halfway round.
+        /// </summary>
+        public bool TurnIsVertical => TurnAxis == BlockFacing.UP || TurnAxis == BlockFacing.DOWN;
+
+        /// <summary>
         /// The shortest sweep that ends on the same orientation: 270 becomes -90.
         ///
         /// Placement and animation want different numbers from the same turn. Rotate and
@@ -139,13 +154,14 @@ namespace Mechworks
         /// <summary>
         /// Called on the server right after the entity is created, before spawning.
         /// </summary>
-        public void Configure(BlockSnapshot snapshot, BlockPos source, BlockPos dest, float durationSec, int turnDegrees = 0)
+        public void Configure(BlockSnapshot snapshot, BlockPos source, BlockPos dest, float durationSec, BlockFacing turnAxis = null, int turnDegrees = 0)
         {
             Snapshot = snapshot;
             SourceOrigin = source.Copy();
             DestOrigin = dest.Copy();
             duration = durationSec;
             TurnDegrees = turnDegrees;
+            TurnAxis = turnAxis ?? BlockFacing.UP;
 
             TreeAttribute snapTree = new TreeAttribute();
             snapshot.ToAttributes(snapTree);
@@ -155,6 +171,7 @@ namespace Mechworks
             WatchedAttributes.SetBlockPos(AttrDest, DestOrigin);
             WatchedAttributes.SetFloat(AttrDuration, duration);
             WatchedAttributes.SetInt(AttrTurn, turnDegrees);
+            WatchedAttributes.SetInt(AttrTurnAxis, TurnAxis.Index);
         }
 
         public override void Initialize(EntityProperties properties, ICoreAPI api, long InChunkIndex3d)
@@ -167,6 +184,8 @@ namespace Mechworks
             DestOrigin ??= WatchedAttributes.GetBlockPos(AttrDest, null);
             duration = WatchedAttributes.GetFloat(AttrDuration, duration);
             TurnDegrees = WatchedAttributes.GetInt(AttrTurn);
+            TurnAxis = BlockFacing.ALLFACES[GameMath.Clamp(
+                WatchedAttributes.GetInt(AttrTurnAxis, BlockFacing.UP.Index), 0, BlockFacing.ALLFACES.Length - 1)];
 
             riderMemory = api.ModLoader.GetModSystem<MechworksModSystem>()?.Riders;
 
@@ -255,22 +274,40 @@ namespace Mechworks
         }
 
         /// <summary>Middle of the cell the load turns about.</summary>
-        Vec3d PivotCentre => new Vec3d(SourceOrigin.X + 0.5, 0, SourceOrigin.Z + 0.5);
+        Vec3d PivotCentre => new Vec3d(
+            SourceOrigin.X + 0.5, SourceOrigin.InternalY + 0.5, SourceOrigin.Z + 0.5);
 
         /// <summary>
-        /// Turns a point about the pivot. Positive follows the standard rotation about Y,
-        /// where 90 degrees sends (x, z) to (z, -x).
+        /// Turns a point about the pivot axis, in the same sense as
+        /// <see cref="BlockSnapshot.Rotate"/> — a right-handed rotation about the axis by
+        /// MINUS the angle, which is the handedness vanilla's block codes use.
+        ///
+        /// Rodrigues' formula rather than a per-axis special case, because the two have to
+        /// agree with the placement maths exactly: a rider swung by a different convention
+        /// than the blocks ends up somewhere the load never went.
         /// </summary>
         Vec3d TurnAbout(Vec3d p, float degrees)
         {
             if (degrees == 0f) return p.Clone();
 
             Vec3d c = PivotCentre;
-            double rad = degrees * GameMath.DEG2RAD;
-            double cos = System.Math.Cos(rad), sin = System.Math.Sin(rad);
-            double dx = p.X - c.X, dz = p.Z - c.Z;
+            Vec3i n = TurnAxis.Normali;
 
-            return new Vec3d(c.X + dx * cos + dz * sin, p.Y, c.Z - dx * sin + dz * cos);
+            double rad = -degrees * GameMath.DEG2RAD;
+            double cos = System.Math.Cos(rad), sin = System.Math.Sin(rad);
+
+            double dx = p.X - c.X, dy = p.Y - c.Y, dz = p.Z - c.Z;
+
+            double cx = n.Y * dz - n.Z * dy;
+            double cy = n.Z * dx - n.X * dz;
+            double cz = n.X * dy - n.Y * dx;
+
+            double k = (n.X * dx + n.Y * dy + n.Z * dz) * (1 - cos);
+
+            return new Vec3d(
+                c.X + dx * cos + cx * sin + n.X * k,
+                c.Y + dy * cos + cy * sin + n.Y * k,
+                c.Z + dz * cos + cz * sin + n.Z * k);
         }
 
         /// <summary>
@@ -282,7 +319,17 @@ namespace Mechworks
         /// </summary>
         Vec3d ToLoadFrame(Vec3d worldPos)
         {
-            return TurnDegrees == 0 ? worldPos : TurnAbout(worldPos, TurnedDegrees);
+            if (TurnDegrees == 0) return worldPos;
+
+            // Vertical axis only, and deliberately. Every test built on this frame answers
+            // "is the rider standing on top of something", which needs the load's up to be
+            // the world's up. Feed it a load turning about a horizontal axis and a player
+            // standing harmlessly beside the machine can rotate into a position the tests
+            // read as standing on it — and then get corrected there, vertically, in world
+            // space. Leaving the frame alone means those tests see the load where it was
+            // when the stroke began: nobody is dragged, and SnapRidersToLanding still
+            // clears anyone the blocks come down on.
+            return TurnIsVertical ? TurnAbout(worldPos, TurnedDegrees) : worldPos;
         }
 
         /// <summary>Collision boxes of the carried blocks, in world space, right now.</summary>
@@ -338,8 +385,17 @@ namespace Mechworks
                 // layout happens to occupy at zero degrees.
                 if (TurnDegrees != 0)
                 {
-                    horizontalRadius = ReachFromPivot(boxes);
+                    double reach = ReachFromPivot(boxes);
+                    horizontalRadius = reach;
                     center = new Vec3d(PivotCentre.X, center.Y, PivotCentre.Z);
+
+                    // A load turning about a horizontal axis sweeps a vertical circle, so
+                    // the search has to grow upwards and downwards too.
+                    if (!TurnIsVertical)
+                    {
+                        verticalRadius = reach;
+                        center.Y = PivotCentre.Y;
+                    }
                 }
 
                 Entity[] nearby = World.GetEntitiesAround(
@@ -466,7 +522,11 @@ namespace Mechworks
             // The same idea for the turn: swing the rider by however much the load has
             // turned since this rider was last handled. Negated to match the mesh, which
             // the renderer draws at minus the placement angle.
-            if (TurnDegrees != 0)
+            // Only a vertical axis. A load turning about a horizontal one is a wheel on
+            // edge: a rider has nothing to stand on past the first few degrees, and there
+            // is no yaw that expresses being tipped over anyway. They are left in the world
+            // to be shoved clear by the load, or seated on it again when it lands.
+            if (TurnDegrees != 0 && TurnIsVertical)
             {
                 float turnedNow = TurnedDegrees;
                 if (riderTurned.TryGetValue(rider.EntityId, out float turnedBefore))
@@ -754,20 +814,35 @@ namespace Mechworks
             }
         }
 
-        /// <summary>Distance from the pivot to the farthest corner of the load.</summary>
+        /// <summary>
+        /// Radius of the circle the load sweeps: the distance from the axis line to the
+        /// farthest corner, measured in the plane the load actually turns in. For a
+        /// vertical axis that is the horizontal distance, as it always was.
+        /// </summary>
         double ReachFromPivot(Cuboidd[] boxes)
         {
             Vec3d c = PivotCentre;
+            Vec3i n = TurnAxis.Normali;
             double worst = 0;
 
             foreach (Cuboidd box in boxes)
             {
                 foreach (double x in new[] { box.X1, box.X2 })
                 {
-                    foreach (double z in new[] { box.Z1, box.Z2 })
+                    foreach (double y in new[] { box.Y1, box.Y2 })
                     {
-                        double dx = x - c.X, dz = z - c.Z;
-                        worst = System.Math.Max(worst, System.Math.Sqrt(dx * dx + dz * dz));
+                        foreach (double z in new[] { box.Z1, box.Z2 })
+                        {
+                            double dx = x - c.X, dy = y - c.Y, dz = z - c.Z;
+
+                            // Drop the component along the axis: it does not move.
+                            double along = dx * n.X + dy * n.Y + dz * n.Z;
+                            dx -= along * n.X;
+                            dy -= along * n.Y;
+                            dz -= along * n.Z;
+
+                            worst = System.Math.Max(worst, System.Math.Sqrt(dx * dx + dy * dy + dz * dz));
+                        }
                     }
                 }
             }
@@ -801,7 +876,7 @@ namespace Mechworks
         /// Re-applies the glue marks the blocks were carrying, at wherever they landed.
         /// Server-side only, like the registry itself.
         /// </summary>
-        void RestoreGlue(BlockPos origin, int turnDegrees)
+        void RestoreGlue(BlockPos origin, BlockFacing axis, int turnDegrees)
         {
             if (Snapshot?.Glued == null || origin == null) return;
             if (World?.Side != EnumAppSide.Server) return;
@@ -812,7 +887,7 @@ namespace Mechworks
             for (int i = 0; i < Snapshot.Count && i < Snapshot.Glued.Length; i++)
             {
                 if (!Snapshot.Glued[i]) continue;
-                glue.Add(BlockSnapshot.WorldPos(origin, BlockSnapshot.Rotate(Snapshot.Offsets[i], turnDegrees)));
+                glue.Add(BlockSnapshot.WorldPos(origin, BlockSnapshot.Rotate(Snapshot.Offsets[i], axis, turnDegrees)));
             }
         }
 
@@ -822,8 +897,8 @@ namespace Mechworks
             if (settled) return;
             settled = true;
 
-            Snapshot?.RestoreToWorld(World, DestOrigin, TurnDegrees);
-            RestoreGlue(DestOrigin, TurnDegrees);
+            Snapshot?.RestoreToWorld(World, DestOrigin, TurnAxis, TurnDegrees);
+            RestoreGlue(DestOrigin, TurnAxis, TurnDegrees);
             Die(EnumDespawnReason.Removed);
         }
 
@@ -847,8 +922,8 @@ namespace Mechworks
                 // the source is — either way the blocks come back somewhere sane.
                 BlockPos landing = Progress >= 0.5f ? DestOrigin : SourceOrigin;
                 int turn = Progress >= 0.5f ? TurnDegrees : 0;
-                Snapshot.RestoreToWorld(World, landing, turn);
-                RestoreGlue(landing, turn);
+                Snapshot.RestoreToWorld(World, landing, TurnAxis, turn);
+                RestoreGlue(landing, TurnAxis, turn);
             }
 
             if (renderer != null && Api is ICoreClientAPI capi)

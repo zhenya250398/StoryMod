@@ -21,5 +21,10 @@
 	"block-pistonbeam-east": "Балка поршня",
 	"block-pistonbeam-south": "Балка поршня",
 	"block-pistonbeam-west": "Балка поршня",
-	"block-turntable": "Поворотная платформа"
+	"block-turntable-up": "Поворотная платформа",
+	"block-turntable-down": "Поворотная платформа",
+	"block-turntable-north": "Поворотная платформа",
+	"block-turntable-east": "Поворотная платформа",
+	"block-turntable-south": "Поворотная платформа",
+	"block-turntable-west": "Поворотная платформа"
 }

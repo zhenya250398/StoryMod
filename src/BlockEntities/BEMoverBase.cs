@@ -308,13 +308,14 @@ namespace Mechworks
         }
 
         /// <summary>
-        /// Lifts the given cells and hands them to a carrier that turns them about this
-        /// block over the stroke. Landing cells must have been checked already: a turn
-        /// sends every block somewhere different, so the caller knows the geometry.
+        /// Lifts the given cells and hands them to a carrier that turns them about the
+        /// given axis through this block over the stroke. Landing cells must have been
+        /// checked already: a turn sends every block somewhere different, so the caller
+        /// knows the geometry.
         /// </summary>
-        protected bool StartTurn(IList<BlockPos> cells, int turnDegrees)
+        protected bool StartTurn(IList<BlockPos> cells, BlockFacing axis, int turnDegrees)
         {
-            return LaunchCarrier(cells, Pos, Pos, turnDegrees);
+            return LaunchCarrier(cells, Pos, Pos, axis, turnDegrees);
         }
 
         /// <summary>
@@ -339,7 +340,7 @@ namespace Mechworks
             }
 
             BlockPos source = cells[0].Copy();
-            return LaunchCarrier(cells, source, source.AddCopy(direction), 0);
+            return LaunchCarrier(cells, source, source.AddCopy(direction), null, 0);
         }
 
         /// <summary>
@@ -350,7 +351,7 @@ namespace Mechworks
         /// From here until the entity settles these blocks exist only inside the snapshot,
         /// which is why EntityMovingBlocks puts them back even when it dies unexpectedly.
         /// </summary>
-        bool LaunchCarrier(IList<BlockPos> cells, BlockPos source, BlockPos dest, int turnDegrees)
+        bool LaunchCarrier(IList<BlockPos> cells, BlockPos source, BlockPos dest, BlockFacing axis, int turnDegrees)
         {
             IBlockAccessor ba = Api.World.BlockAccessor;
 
@@ -375,7 +376,7 @@ namespace Mechworks
 
             snapshot.ClearFromWorld(ba, source);
 
-            carrier.Configure(snapshot, source, dest, MoveDurationSec, turnDegrees);
+            carrier.Configure(snapshot, source, dest, MoveDurationSec, axis, turnDegrees);
             carrier.Pos.SetPos(source.X, source.InternalY, source.Z);
 
             Api.World.SpawnEntity(carrier);
